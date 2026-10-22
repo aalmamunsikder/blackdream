@@ -1,0 +1,124 @@
+Vendored OpenCore-Simplify engine
+=================================
+
+This directory contains a vendored copy of the engine from OpCore Simplify.
+
+Upstream project : https://github.com/lzhoang2801/OpCore-Simplify
+Upstream branch  : main
+Upstream commit  : f0e1e441bb455c33e9695a9c9c50e8ca931d4de8
+Upstream author  : Hoang Hong Quan
+Upstream license : BSD 3-Clause (see LICENSE.upstream.BSD-3-Clause)
+
+Modifications made to the vendored copy
+---------------------------------------
+Group 1 -- packaging only. No behaviour change.
+
+1. Package rename: the upstream `Scripts` namespace package is vendored as
+   `ocengine`. Import statements were rewritten accordingly, e.g.
+   `from Scripts import acpi_guru` -> `from ocengine import acpi_guru`.
+2. `__init__.py` was added: upstream relies on implicit namespace packages,
+   which is unreliable once the tree is bundled by PyInstaller.
+3. `updater.py` is deliberately NOT vendored. It downloads `main.zip` over an
+   unverified transport, writes it on top of its own source tree, then calls
+   `os.execv` to restart the process. A signed desktop application must not
+   self-overwrite its own code, so this is replaced by a proper update flow.
+4. `OpCore-Simplify.py` is vendored as `cli_ocpe.py` for reference and as the
+   source of the build pipeline logic. Its terminal menu loop is superseded by
+   the GUI, and its `import updater` line is expected to fail until that
+   pipeline logic is lifted into `blackdream.core`.
+
+Group 2 -- interface changes. The computations are unchanged; only how results
+reach the caller differs. Every change in this group is covered by
+tests/test_engine_equivalence.py, which drives 814 synthetic reports through
+both the pinned upstream tree and this one and requires identical verdicts.
+
+5. `runtime.py` (new) defines the event sink. Terminal presentation is routed
+   through it: `print` -> `log`, `head()` -> `section`, `progress_bar()` ->
+   `stage`, the carriage-return download meter -> `transfer`, and every
+   "press Enter" gate -> `notify`. The engine never imports the application;
+   the application installs a sink.
+6. `fatal.py` (new) defines typed errors. The six places that aborted the
+   process on an incompatible device now raise `FatalIncompatibility`
+   subclasses that carry the reason and the remediation steps the terminal
+   used to print, plus `recoverable` so the UI can distinguish "change a BIOS
+   setting and retry" from "this machine cannot run macOS".
+7. Interactive menus became data plus an apply step: `hardware_customizer`,
+   `smbios`, `kext_maestro`, `config_prodigy` and `acpi_guru` now expose pure
+   builders that return the question, the candidates and the default, and
+   separate `apply_*` methods. Nothing in the engine can block.
+8. Determinism. `config_prodigy` picked a random AppleALC layout id per run and
+   `kext_data` rolled a random download-cache id per import, which made the
+   cache entry unreachable. Both are now derived from the data: layout ids by a
+   fixed author precedence, cache ids from a SHA256 of the owning repository.
+   `os_data` states each Darwin major as a literal instead of deriving it from
+   the marketing version string.
+9. Download integrity. `resource_fetcher` refuses any artifact without a
+   required SHA256, and `ssl._create_unverified_context` is gone from the tree.
+   `gathering_files` bounds recursive archive extraction (depth, declared
+   bytes, archive count) and raises typed errors where it used to wait on a
+   keypress. `run.Run` gained a `timeout` that kills and reaps. The two
+   remaining responses that are consumed as data rather than executed --
+   dortania's build index and the AMD Vanilla, Aquantia and hyper-threading
+   kernel patch plists -- are fetched by full commit sha and verified against a
+   pinned digest before parsing (`ResourceFetcher.fetch_and_verify_content`),
+   so the metadata that supplies every artifact digest is itself immutable.
+   GitHub release assets are discovered through the JSON API, then the Atom
+   feed, and only then the releases page; every discovered tag is validated
+   before it is interpolated into the expanded-assets URL. The page scraper
+   remains as the last fallback because GitHub serves it in more than one
+   shape and a page without tag links used to abort the whole gather stage.
+10. OcBinaryData is fetched by full commit sha
+    (`OCBINARYDATA_COMMIT`) with its digest pinned in `ARTIFACT_DIGESTS`,
+    because upstream fetched `refs/heads/master.zip`, which publishes no digest
+    and changes under a fixed URL. The extracted directory name is derived from
+    the pinned sha rather than the hardcoded `OcBinaryData-master`.
+11. `wifi_profile_extractor` splits enumeration from key recovery: names are
+    readable without consent, `recover_passwords()` requires it positionally,
+    every subprocess is argv-only with a required timeout and `stdin=DEVNULL`,
+    and no plaintext key can reach a log, an exception, or a `repr`.
+
+Group 3 -- deliberate behaviour changes. These alter generated output; each is
+a proven defect upstream still ships, and each has a test.
+
+12. `acpi_guru.read_acpi_tables` compared `_table_signature()` (which returns
+    `bytes`) to the `str` `"DSDT"`. The comparison could never be true, so a
+    folder of dumped tables never located its DSDT: the multiple-DSDT guard was
+    dead, the DSDT was never tested for disassembly, and the Gigabyte/ASRock/
+    MSI pre-patches in `dsdt_patches` were never applied to any build.
+    Tests: tests/test_dsdt_detection.py.
+13. `kext_maestro.modify_kexts` chained
+    `.get("IOKitPersonalities").get("itlwm").get("WiFiConfig")` inside a bare
+    `except:`, so every plist without an itlwm personality raised and the
+    `VoodooTSCSync`/`AmdTscSync` `IOCPUNumber` branches below it were dead code
+    that never ran. With the itlwm branch removed the swallow goes with it and
+    those branches now execute.
+14. `wifi_profile_extractor` truncated any password containing a colon, because
+    it split the `nmcli`/`netsh` value on `":"` instead of on the first colon.
+
+NOT taken from upstream
+-----------------------
+No code here originates from the upstream `add-gui-support` branch. That branch
+is licensed under the GNU Affero General Public License v3, and this project
+does not use, link, or derive from it.
+
+To rebase onto a newer upstream commit
+-------------------------------------
+Run from a clone of the upstream repo:
+
+    git archive <new-sha> Scripts | tar -x -C src/ocengine --strip-components=1
+
+then re-apply the import rewrite:
+
+    find src/ocengine -name '*.py' -print0 | xargs -0 sed -i \
+      -e 's/^from Scripts\.datasets import /from ocengine.datasets import /' \
+      -e 's/^from Scripts\.datasets\./from ocengine.datasets./' \
+      -e 's/^from Scripts import /from ocengine import /' \
+      -e 's/from Scripts import wifi_profile_extractor/from ocengine import wifi_profile_extractor/'
+
+and re-review cli_ocpe.py against the new upstream OpCore-Simplify.py.
+
+Group 1 above is pure textual rewriting and re-applies mechanically. Groups 2 and
+3 are a review queue: a fresh upstream tree still contains the terminal I/O, the
+`sys.exit` aborts, the random selections, the unverified downloads, the remote
+named binaries, and the four defects, so each has to be re-landed by hand and
+re-proved with `tests/test_engine_equivalence.py` and the rest of `tests/`.

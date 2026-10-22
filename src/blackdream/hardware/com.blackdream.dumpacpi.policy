@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD polkit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
+<!-- Installed as /usr/share/polkit-1/actions/com.blackdream.dumpacpi.policy
+
+     exec.path is what makes `pkexec <that path>` show the message below instead of
+     polkit's generic "run a program as another user", and it binds the action to one
+     file: the annotation is only consulted for a program at exactly that path, so a
+     copy of the helper somewhere else still falls back to auth_admin every time.
+
+     auth_admin_keep rather than auth_admin so one authentication covers the dump and
+     the build that consumes it.  That retention is precisely why the helper takes no
+     arguments: see its module docstring. -->
+<policyconfig>
+  <vendor>BlackDream</vendor>
+  <action id="com.blackdream.dumpacpi">
+    <description>Dump the firmware ACPI tables for BlackDream</description>
+    <message>BlackDream needs administrator rights to read the ACPI tables your firmware exports. They are owner-only by design; the copy it makes is handed to your own account and is never sent anywhere.</message>
+    <icon_name>blackdream</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/blackdream/dump_acpi_tables.py</annotate>
+  </action>
+</policyconfig>

@@ -1,0 +1,72 @@
+Vendored Hardware Sniffer Linux collector
+=========================================
+
+This directory contains a vendored, adapted copy of the hardware-collection layer
+from Hardware Sniffer, the tool OpCore Simplify tells Windows users to run to
+produce the Report.json this engine consumes.
+
+Upstream project : https://github.com/lzhoang2801/Hardware-Sniffer
+Upstream tag     : 2.1.1
+Upstream commit  : 2e0fa16020279a7a13575813ace94537362e262a
+Upstream author  : lzhoang2801
+Upstream license : BSD 3-Clause (see LICENSE.upstream.BSD-3-Clause)
+
+Why this is vendored instead of shelled out to
+----------------------------------------------
+Upstream OpCore Simplify only ever invokes the released `Hardware-Sniffer-CLI.exe`,
+and gates that behind `if os_name != "Windows": return`
+(OpCore-Simplify/Scripts/gathering_files.py:308) plus `if os.name == "nt"`
+(OpCore-Simplify.py:42).  Release 2.1.1 publishes only two assets, both `.exe`, and
+its `requirements.txt` is a single Windows-only dependency (`wmi`).  So on Linux and
+macOS there is no generator at all -- which is exactly the gap that stops this
+project from being end to end.  The Linux half of the same BSD-3 source tree already
+closes it: `Scripts/platforms/linux.py` reads sysfs, procfs and DMI as an ordinary
+user, needs no `wmi`, and emits the schema this engine validates.
+
+Not vendored, on purpose
+------------------------
+- `Scripts/platforms/windows.py` -- WMI-backed, and the released `.exe` already
+  covers Windows users without us shipping anything.
+- `HardwareSniffer.py`, `Hardware-Sniffer-CLI.py`, `Scripts/github.py`,
+  `Scripts/resource_fetcher.py`, `Scripts/dump_acpi*` -- the CLI shell, the GitHub
+  release fetcher, the acpidump download and the `sudo cp` ACPI dump.  A GUI must not
+  self-update, download at collection time, or shell out to `sudo`.  DSDT acquisition
+  is a separate, explicitly-approved path: `blackdream/hardware/acpi.py` asks polkit to
+  run `blackdream/hardware/dump_acpi_tables.py`, which takes no arguments at all.
+- `Scripts/run.py` -- shared with the self-updater, so it carries a `sudo` prefix
+  mode, streams child output with `print`, and sets no timeout.  Replaced by
+  `probe_command.py`.
+- `Scripts/cpuid.py` -- imported only by the Windows backend.
+- `Scripts/datasets/pci_data.py` and `pci.ids` -- the Linux backend reads no symbol
+  from either.  `usb.ids` is kept: it names USB input devices.
+
+Modifications made to the vendored copy
+---------------------------------------
+1. Packaging only, no behaviour change.  `Scripts/datasets` -> `sniffer/datasets`;
+   `from Scripts import utils` -> `from . import utils`;
+   `from Scripts.platforms.linux` -> `from .linux`; `__init__.py` added (upstream
+   relies on implicit namespace packages, which is unreliable once PyInstaller
+   bundles the tree).
+2. `utils.Utils.get_full_path()` -> `get_data_path()`.  The upstream version resolved
+   data through a PyInstaller `sys._MEIPASS` bundle.
+3. Terminal I/O removed from `utils.py`: `head`, `progress_bar`,
+   `adjust_window_size`, `request_input`, `exit_program` (ANSI, `os.system('clear')`,
+   a blocking `input()`, a `sys.exit(0)`), plus the `rich_format` flag, the
+   `plistlib` paths, `create_folder` and `extract_zip_file`.
+4. `linux.py` terminal I/O removed: the seven `print()` calls in `hardware_collector`
+   became a `progress(step_name, index, total)` callback, and the closing
+   `time.sleep(1)` was dropped.  `hardware_collector()` now returns the report dict
+   instead of leaving it only on `self.result`.  The two "No <section> found" prints
+   deliberately did NOT become progress events: a miss is a result, not a step, and
+   counting it inflated the checklist past its real 15 stages.  `collect.py` derives
+   the same lines from the engine's schema instead.
+5. `linux.py` constructor: `rich_format` -> `progress`; the two `self.run({"args": ...})`
+   calls became `probe_command.run([...])`.
+6. `device_locator.py`: `WindowsDeviceLocator` deleted (it calls `pywin32`'s
+   `GetDeviceProperties`), and the now-unused `re` import removed.
+
+Behaviour is otherwise identical to upstream, including the sysfs layout it depends
+on.  The one known upstream defect that mattered is NOT fixed here -- it is fixed one
+layer up, in `collect.py`, so the vendored file stays diffable against the tag:
+upstream de-pads only the `\_SB_.` prefix of a `firmware_node/path`, so a thermal
+zone keeps `\_TZ_.THRM`, which this engine's `acpi_path` pattern rejects outright.

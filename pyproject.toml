@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blackdream"
+version = "0.1.0"
+description = "Cross-platform OpenCore EFI builder with a pure GUI and no terminal."
+license = "MIT"
+license-files = ["LICENSE", "src/ocengine/LICENSE.upstream.BSD-3-Clause"]
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.8",
+    "certifi>=2024.2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+blackdream = "blackdream.ui.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blackdream", "src/ocengine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

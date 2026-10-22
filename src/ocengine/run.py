@@ -1,0 +1,202 @@
+# Source: https://github.com/corpnewt/SSDTTime/blob/7b3fb78112bf320a1bc6a7e50dddb2b375cb70b0/Scripts/run.py
+#
+# Vendored subprocess helper. Converted for the GUI host: the four prints went
+# to the event sink, and run()/_run_command() gained an optional `timeout` so a
+# hung child can be killed instead of blocking the engine forever. The default
+# timeout=None reproduces upstream exactly, so existing callers are unaffected.
+#
+# Terminal streaming (the thread/queue machinery below) is DEAD CODE -- no
+# caller anywhere in this repository ever passes stream=True, so every command
+# runs through _run_command() and blocks on communicate(). It is kept verbatim
+# only so this file still diffs against upstream. Do not wire it to the GUI.
+
+import sys, subprocess, time, threading, shlex
+try:
+    from Queue import Queue, Empty
+except:
+    from queue import Queue, Empty
+
+from ocengine import utils
+
+ON_POSIX = 'posix' in sys.builtin_module_names
+
+# Exit code returned when a command is killed for exceeding its timeout, in the
+# shell convention where 124 is the timeout command's own status.
+TIMEOUT_EXIT_CODE = 124
+
+class Run:
+
+    def __init__(self):
+        self.utils = utils.Utils(script_name="Subprocess")
+        return
+
+    # ---- unused: terminal streaming --------------------------------------
+    # _read_output/_create_thread/_stream_output exist only to feed a live
+    # terminal. They write straight to sys.stdout/sys.stderr, they cannot be
+    # cancelled, and nothing calls them. See the header comment.
+
+    def _read_output(self, pipe, q):
+        try:
+            for line in iter(lambda: pipe.read(1), b''):
+                q.put(line)
+        except ValueError:
+            pass
+        pipe.close()
+
+    def _create_thread(self, output):
+        # Creates a new queue and thread object to watch based on the output pipe sent
+        q = Queue()
+        t = threading.Thread(target=self._read_output, args=(output, q))
+        t.daemon = True
+        return (q,t)
+
+    def _stream_output(self, comm, shell = False):
+        # UNUSED -- see the block comment above. Writes to sys.stdout/sys.stderr,
+        # which the GUI host cannot read, and ignores `timeout`.
+        output = error = ""
+        p = None
+        try:
+            if shell and type(comm) is list:
+                comm = " ".join(shlex.quote(x) for x in comm)
+            if not shell and type(comm) is str:
+                comm = shlex.split(comm)
+            p = subprocess.Popen(comm, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, universal_newlines=True, close_fds=ON_POSIX)
+            # Setup the stdout thread/queue
+            q,t   = self._create_thread(p.stdout)
+            qe,te = self._create_thread(p.stderr)
+            # Start both threads
+            t.start()
+            te.start()
+
+            while True:
+                c = z = ""
+                try: c = q.get_nowait()
+                except Empty: pass
+                else:
+                    sys.stdout.write(c)
+                    output += c
+                    sys.stdout.flush()
+                try: z = qe.get_nowait()
+                except Empty: pass
+                else:
+                    sys.stderr.write(z)
+                    error += z
+                    sys.stderr.flush()
+                if not c==z=="": continue # Keep going until empty
+                # No output - see if still running
+                p.poll()
+                if p.returncode != None:
+                    # Subprocess ended
+                    break
+                # No output, but subprocess still running - stall for 20ms
+                time.sleep(0.02)
+
+            o, e = p.communicate()
+            return (output+o, error+e, p.returncode)
+        except:
+            if p:
+                try: o, e = p.communicate()
+                except: o = e = ""
+                return (output+o, error+e, p.returncode)
+            return ("", "Command not found!", 1)
+
+    # ---- used: blocking runner -------------------------------------------
+
+    def _decode(self, value, encoding="utf-8", errors="ignore"):
+        # Helper method to only decode if bytes type
+        if sys.version_info >= (3,0) and isinstance(value, bytes):
+            return value.decode(encoding,errors)
+        return value
+
+    def _run_command(self, comm, shell = False, timeout = None):
+        c = None
+        try:
+            if shell and type(comm) is list:
+                comm = " ".join(shlex.quote(x) for x in comm)
+            if not shell and type(comm) is str:
+                comm = shlex.split(comm)
+            # A frozen GUI has no console; without this flag Windows opens one
+            # for every iasl/macserial call and it flashes over the window.
+            p = subprocess.Popen(
+                comm, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if timeout is None:
+                # Upstream behaviour: no deadline, no cancellation.
+                c = p.communicate()
+            else:
+                try:
+                    c = p.communicate(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    # The child is still alive at this point: kill it first, then
+                    # reap whatever it managed to write, so callers still get a
+                    # (stdout, stderr, code) triple and nothing lingers.
+                    # Note that with shell=True this kills the shell, not the
+                    # grandchild -- process groups are a job-runner concern.
+                    p.kill()
+                    out, err = p.communicate()
+                    self.utils.log_message(
+                        "Killed {} after {}s.".format(comm, timeout), level="warning")
+                    return (self._decode(out), self._decode(err), TIMEOUT_EXIT_CODE)
+        except:
+            if c == None:
+                return ("", "Command not found!", 1)
+        return (self._decode(c[0]), self._decode(c[1]), p.returncode)
+
+    def run(self, command_list, leave_on_fail = False, timeout = None):
+        # Command list should be an array of dicts
+        if type(command_list) is dict:
+            # We only have one command
+            command_list = [command_list]
+        output_list = []
+        for comm in command_list:
+            args   = comm.get("args",   [])
+            shell  = comm.get("shell",  False)
+            stream = comm.get("stream", False)
+            sudo   = comm.get("sudo",   False)
+            stdout = comm.get("stdout", False)
+            stderr = comm.get("stderr", False)
+            mess   = comm.get("message", None)
+            show   = comm.get("show",   False)
+            # Per-command deadline in seconds; None blocks until the child exits.
+            comm_timeout = comm.get("timeout", timeout)
+
+            if not mess == None:
+                self.utils.log_message(mess, level="info")
+
+            if not len(args):
+                # nothing to process
+                continue
+            if sudo:
+                # Check if we have sudo
+                out = self._run_command(["which", "sudo"], timeout=comm_timeout)
+                if "sudo" in out[0]:
+                    # Can sudo
+                    if type(args) is list:
+                        args.insert(0, out[0].replace("\n", "")) # add to start of list
+                    elif type(args) is str:
+                        args = out[0].replace("\n", "") + " " + args # add to start of string
+
+            if show:
+                self.utils.log_message(" ".join(args), level="debug")
+
+            if stream:
+                # Stream it!  UNUSED path -- no caller sets stream=True, and
+                # _stream_output writes to a terminal and ignores comm_timeout.
+                out = self._stream_output(args, shell)
+            else:
+                # Just run and gather output
+                out = self._run_command(args, shell, timeout=comm_timeout)
+                if stdout and len(out[0]):
+                    self.utils.log_message(out[0], level="info")
+                if stderr and len(out[1]):
+                    self.utils.log_message(out[1], level="warning")
+            # Append output
+            output_list.append(out)
+            # Check for errors
+            if leave_on_fail and out[2] != 0:
+                # Got an error - leave
+                break
+        if len(output_list) == 1:
+            # We only ran one command - just return that output
+            return output_list[0]
+        return output_list

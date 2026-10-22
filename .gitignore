@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+
+# Runtime artifacts created by the engine, never committed.
+OCK_Files/
+Results/
+SysReport/
+sha_version.txt
+
+# Binaries fetched at runtime (iasl, macserial). Kept out of the package so a
+# downloaded file can never shadow a bundled one. Source scripts in tools/ are
+# tracked; the directory itself must stay unignored for these negations to work.
+tools/*
+!tools/.gitkeep
+!tools/e2e_build.py
