@@ -235,5 +235,10 @@ def test_a_real_scan_names_the_identifiers_the_engine_can_use(sink, tmp_path):
     if cpu_codename == "Unknown":
         pytest.skip("this CPU is not in the engine's tables; the collector says so")
     assert cpu_codename in cpu_data.IntelCPUGenerations + getattr(cpu_data, "AMDCPUGenerations", [])
+    if chipset == "Unknown":
+        # A virtual machine has no chipset to read from DMI. The test's claim is that
+        # the names the collector does produce are names the engine knows, so a host
+        # that produces none has nothing to check here.
+        pytest.skip("this chipset is not in the engine's tables; the collector says so")
     assert chipset in chipset_data.IntelChipsets + getattr(chipset_data, "AMDChipsets", [])
     assert report["CPU"]["SIMD Features"]

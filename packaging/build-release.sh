@@ -47,18 +47,21 @@ ARCH="$("$PY" -c 'import platform; print(platform.machine())' \
        | tr "[:upper:]" "[:lower:]" | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"
 PLATFORM_TAG="${OS}-${ARCH}"
 OUT="$ROOT/dist/release"
-BUNDLE="$ROOT/dist/BlackDream"
 APP_NAME="BlackDream-${LABEL}-${PLATFORM_TAG}"
 # The oldest glibc a Linux build is allowed to require; verify-artifacts.py measures the
 # finished bundle against it and the packages state it as a dependency.
 MIN_GLIBC="2.35"
 
-# PyInstaller puts the launcher in a different place on every platform, and macOS
-# wraps the directory in a .app.
+# PyInstaller puts the launcher in a different place on every platform, and on macOS
+# the BUNDLE output *is* the bundle directory: dist/BlackDream.app sits at the top of
+# dist, not inside a dist/BlackDream directory.
 case "$OS" in
-  linux)   LAUNCHER="$BUNDLE/BlackDream" ;;
-  macos)   LAUNCHER="$BUNDLE/BlackDream.app/Contents/MacOS/BlackDream" ;;
-  windows) LAUNCHER="$BUNDLE/BlackDream.exe" ;;
+  linux)   BUNDLE="$ROOT/dist/BlackDream"
+           LAUNCHER="$BUNDLE/BlackDream" ;;
+  macos)   BUNDLE="$ROOT/dist/BlackDream.app"
+           LAUNCHER="$BUNDLE/Contents/MacOS/BlackDream" ;;
+  windows) BUNDLE="$ROOT/dist/BlackDream"
+           LAUNCHER="$BUNDLE/BlackDream.exe" ;;
 esac
 
 step() { printf '\n== %s\n' "$1"; }
@@ -86,7 +89,7 @@ case "$OS" in
     cp -r packaging/icons/hicolor "$BUNDLE/share/icons"
     ;;
   macos)
-    NOTICE_DIR="$BUNDLE/BlackDream.app/Contents/Resources"
+    NOTICE_DIR="$BUNDLE/Contents/Resources"
     ;;
   windows)
     NOTICE_DIR="$BUNDLE"

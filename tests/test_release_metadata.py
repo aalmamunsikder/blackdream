@@ -442,6 +442,36 @@ def test_the_rpm_manifest_is_read_the_way_rpm_prints_it(monkeypatch, tmp_path):
     ]
 
 
+def test_the_audit_accepts_the_bundle_layout_pyinstaller_writes_on_macos(tmp_path):
+    """A macOS BUNDLE is created at the top of ``dist`` as ``BlackDream.app``, with data
+    under ``Contents/Resources``. Looking for ``dist/BlackDream`` there found nothing and
+    the audit failed a correct build, so the layout is built here and read back."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "verify_artifacts_macos_layout", ROOT / "packaging" / "verify-artifacts.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    resources = tmp_path / "BlackDream.app" / "Contents" / "Resources"
+    internal = resources / "_internal"
+    resources.mkdir(parents=True)
+    for notice in module.BUNDLE_NOTICES:
+        (resources / notice).write_text(notice, encoding="utf-8")
+    for notice in module.SOURCE_NOTICES:
+        target = internal / notice
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(notice, encoding="utf-8")
+    (internal / "licenses").mkdir()
+    helper = internal / "blackdream" / "hardware" / "dump_acpi_tables.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("# helper\n", encoding="utf-8")
+
+    problems = []
+    module.audit_bundle(tmp_path / "BlackDream.app", problems)
+    assert problems == []
+
+
 def test_the_macos_floor_is_measured_not_asserted():
     """PySide6 6.12's wheels are tagged ``macosx_14_0``. A plist that promises an older
     macOS lets Finder launch a bundle whose Qt cannot load, so the spec reads the floor

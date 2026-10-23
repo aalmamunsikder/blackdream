@@ -264,9 +264,10 @@ def audit_bundle(bundle: Path, problems: list) -> None:
     if not bundle.is_dir():
         problems.append("no bundle at {}".format(bundle))
         return
-    # Linux and Windows put the launcher's directory at the top; macOS wraps it in .app,
-    # where Resources is the equivalent of "next to the binary".
-    roots = [bundle, bundle / "BlackDream.app" / "Contents" / "Resources"]
+    # Linux and Windows put the launcher's directory at the top; on macOS the .app is
+    # that directory, and Resources is where "next to the binary" means there.
+    roots = [bundle, bundle / "Contents" / "Resources",
+             bundle / "BlackDream.app" / "Contents" / "Resources"]
     for notice in BUNDLE_NOTICES:
         if not any((root / notice).is_file() for root in roots):
             problems.append("nothing next to the launcher is a {}".format(notice))
@@ -282,8 +283,10 @@ def audit_bundle(bundle: Path, problems: list) -> None:
     # The one thing in the bundle that a tester is told to install by hand. If it is not
     # there, the README's instruction is a dead end and the ACPI step silently degrades to
     # "export the tables somewhere else" on every platform that has no package.
-    helper = bundle / "_internal" / "blackdream" / "hardware" / "dump_acpi_tables.py"
-    if not helper.is_file():
+    helper = next((path for path in bundle.rglob("dump_acpi_tables.py")
+                   if path.parent.name == "hardware"
+                   and path.parent.parent.name == "blackdream"), None)
+    if helper is None:
         problems.append("bundle carries no dump_acpi_tables.py, so nothing can be "
                         "installed to {}".format(INSTALLED_HELPER))
 
@@ -350,9 +353,10 @@ def main() -> int:
     if not release.is_dir():
         problems.append("no release directory at {}".format(release))
     verified = audit_index(release, problems) if release.is_dir() else 0
-    # The name the spec's COLLECT gives the bundle directory; on macOS the .app is
-    # inside it. Anything else in dist/ is a leftover from another build.
-    bundle = args.root / "BlackDream"
+    # PyInstaller writes dist/BlackDream on Linux and Windows; a macOS BUNDLE is created
+    # at the top of dist as dist/BlackDream.app. Anything else in dist/ is a leftover
+    # from another build.
+    bundle = args.root / ("BlackDream.app" if sys.platform == "darwin" else "BlackDream")
     audit_bundle(bundle, problems)
 
     # The floor only means something for the Linux bundle; on the other two platforms

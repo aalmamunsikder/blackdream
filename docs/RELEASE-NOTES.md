@@ -51,14 +51,18 @@ not involve money; no payment link exists yet).
 
 | Environment | Status |
 | --- | --- |
-| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; all three workflows exercised locally, 642 automated tests |
+| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 643 automated tests |
 | Windows 10/11 | the bundle is built and smoke-tested natively on a Windows runner; **no full workflow run on real hardware** |
-| macOS 14+ | code paths present, `LSMinimumSystemVersion` 14.0 because PySide6 6.12's wheels are `macosx_14_0`; **no native run of this beta artifact** |
+| macOS 14+ on Intel | the `.app` is built and smoke-tested natively on an Intel macOS runner; Apple Silicon runs the same Intel bundle under Rosetta 2; **no full workflow run on real hardware** |
 | CPython 3.11–3.13 | syntax-verified against the 3.11 grammar; **not executed** |
 
 Hardware coverage in this cycle is one real desktop machine plus the synthetic and
 recorded report corpus. Verdicts for devices nobody has reported are the weakest part
 of the product.
+
+macOS 14 is the floor because PySide6 6.12 ships `macosx_14_0` wheels. The build reads
+`LSMinimumSystemVersion` from the Qt framework it is about to bundle rather than typing
+a number, so the promise in `Info.plist` is one the bundled Qt can keep.
 
 ## Known issues and limitations
 
@@ -107,7 +111,7 @@ Every build publishes these files into `dist/release/`:
 
 | Name | What it is |
 | --- | --- |
-| `BlackDream-0.9.0-beta.1-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows |
+| `BlackDream-0.9.0-beta.1-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
 | `blackdream_0.9.0b1_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
 | `blackdream-0.9.0b1-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
 | `blackdream-0.9.0b1-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
