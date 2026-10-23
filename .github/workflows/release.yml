@@ -1,5 +1,4 @@
-# Two legs: Linux x86_64 and Windows x86_64.
-#
+# Build, test and publish the beta artifacts on GitHub's runners.
 # PyInstaller builds an executable for the machine it runs on, so a Windows .exe cannot
 # be produced on Linux. Every leg therefore runs the same packaging/build-release.sh the
 # development machine runs, and the runner is the only difference between the local
