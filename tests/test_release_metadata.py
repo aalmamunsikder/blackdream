@@ -13,6 +13,7 @@ build anything, so they run in the ordinary suite and fail before a distributor 
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import re
 import shutil
@@ -470,6 +471,35 @@ def test_the_audit_accepts_the_bundle_layout_pyinstaller_writes_on_macos(tmp_pat
     problems = []
     module.audit_bundle(tmp_path / "BlackDream.app", problems)
     assert problems == []
+
+
+def test_the_audit_reads_an_app_archive_without_following_its_symlinks(tmp_path):
+    """A macOS ``.app`` carries symlinks such as ``Python.framework/Versions/Current``.
+    ``extractfile`` resolves them and raises when the target is not a member, which
+    killed the audit on a bundle that was built correctly."""
+    import importlib.util
+    import tarfile
+
+    spec = importlib.util.spec_from_file_location(
+        "verify_artifacts_app_archive", ROOT / "packaging" / "verify-artifacts.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    archive_path = tmp_path / "BlackDream-{}-macos-amd64.tar.gz".format(RELEASE_LABEL)
+    with tarfile.open(archive_path, "w:gz") as archive:
+        payload = b"launcher bytes"
+        info = tarfile.TarInfo("BlackDream.app/Contents/MacOS/BlackDream")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+        link = tarfile.TarInfo(
+            "BlackDream.app/Contents/Frameworks/Python.framework/Versions/Current"
+            "/Python")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "BlackDream.app/Contents/Missing/Python"
+        archive.addfile(link)
+
+    assert list(module.archive_members(archive_path)) == [
+        ("BlackDream.app/Contents/MacOS/BlackDream", payload[:8])]
 
 
 def test_the_macos_floor_is_measured_not_asserted():

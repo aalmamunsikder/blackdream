@@ -98,6 +98,12 @@ def archive_members(path: Path):
     else:
         with tarfile.open(path, "r:*") as archive:
             for info in archive.getmembers():
+                # A .app is a tree of symlinks -- Python.framework/Versions/Current,
+                # the Frameworks crosslinks -- and following one asks tarfile for a
+                # member it may not carry. A link is not a file the audit has a
+                # question about, so it is skipped rather than resolved.
+                if not info.isfile():
+                    continue
                 handle = archive.extractfile(info)
                 if handle is not None:
                     yield info.name, handle.read(8)
