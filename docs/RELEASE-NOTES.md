@@ -51,7 +51,7 @@ not involve money; no payment link exists yet).
 
 | Environment | Status |
 | --- | --- |
-| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | **this is the build being shipped**; all three workflows exercised, 641 automated tests |
+| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | **this is the build being shipped**; all three workflows exercised, 642 automated tests |
 | Windows 10/11 | code paths present, unit-tested against recorded fixtures on Linux; **no native run of this beta artifact** |
 | macOS 14+ | code paths present, `LSMinimumSystemVersion` 14.0 because PySide6 6.12's wheels are `macosx_14_0`; **no native run of this beta artifact** |
 | CPython 3.11–3.13 | syntax-verified against the 3.11 grammar; **not executed** |

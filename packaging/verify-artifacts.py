@@ -318,11 +318,13 @@ def audit_index(release: Path, problems: list) -> int:
         return 0
     verified = 0
     for line in index.read_text(encoding="utf-8").splitlines():
-        digest, _separator, name = line.partition("  ")
-        name = name.strip()
-        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        # GNU sha256sum writes two spaces; Git for Windows writes " *" for a binary
+        # read, so the separator is not fixed.
+        match = re.fullmatch(r"([0-9a-f]{64})\s+\*?(.+)", line)
+        if match is None:
             problems.append("malformed checksum line: {!r}".format(line))
             continue
+        digest, name = match.group(1), match.group(2).strip()
         path = release / name
         if not path.is_file():
             problems.append("SHA256SUMS.txt lists {}, which is not there".format(name))

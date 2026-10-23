@@ -12,6 +12,7 @@ build anything, so they run in the ordinary suite and fail before a distributor 
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -315,6 +316,29 @@ def test_the_notes_quote_no_checksum_of_the_build_that_carries_them():
     beside the artifacts instead, and ``verify-artifacts.py`` recomputes it."""
     assert not re.search(r"\b[0-9a-f]{64}\b", NOTES), \
         "the notes carry a digest that no build can keep true"
+
+
+def test_sha256sums_is_read_in_both_separator_styles(tmp_path):
+    """GNU ``sha256sum`` writes two spaces; Git for Windows writes ``" *"`` for a binary
+    read. The audit accepted only the first, so a Windows leg rejected its own sums."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "verify_artifacts_checksums", ROOT / "packaging" / "verify-artifacts.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    payload = b"artifact bytes"
+    artifact = tmp_path / "BlackDream-{}-windows-amd64.zip".format(RELEASE_LABEL)
+    artifact.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    sums = tmp_path / "SHA256SUMS.txt"
+
+    for separator in ("  ", " *"):
+        sums.write_text(digest + separator + artifact.name + "\n", encoding="utf-8")
+        problems = []
+        assert module.audit_index(tmp_path, problems) == 1, separator
+        assert problems == [], separator
 
 
 def test_the_test_count_in_the_notes_is_the_suite_that_actually_exists():
