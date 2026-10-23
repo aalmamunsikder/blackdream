@@ -143,8 +143,18 @@ def package_listing(path: Path):
     if listed.returncode != 0:
         raise SystemExit("rpm -qvl {} failed: {}".format(path.name, listed.stderr))
     rows = [line.split() for line in listed.stdout.splitlines() if line.strip()]
-    # ``-rwxr-xr-x root root 123 Oct 23 2026 /usr/bin/blackdream``
-    return [(row[-1], row[0], row[1]) for row in rows if len(row) > 4]
+    # ``-rwxr-xr-x    1 root     root     123 Oct 23 2026 /usr/bin/blackdream``
+    # The field after the mode is the link count; owner and group follow it. A
+    # symlink's line appends ``-> target``, so the path is found by shape.
+    entries = []
+    for row in rows:
+        if len(row) < 4:
+            continue
+        name = next((field for field in row if field.startswith("/")), None)
+        if name is None:
+            continue
+        entries.append((name, row[0], row[2]))
+    return entries
 
 
 def audit_package(path: Path, problems: list) -> None:

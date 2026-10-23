@@ -349,6 +349,37 @@ def test_the_packages_install_the_helper_where_polkit_looks_for_it():
             .format(INSTALLED_HELPER.as_posix())) in action
 
 
+def test_the_rpm_manifest_is_read_the_way_rpm_prints_it(monkeypatch, tmp_path):
+    """``rpm -qvl`` prints an ``ls -l`` row, so the field after the mode is the link
+    count, not the owner. Reading it as the owner made every RPM fail the audit with
+    "owned by 1", which is a false failure on a correct package."""
+    import importlib.util
+    from types import SimpleNamespace
+
+    spec = importlib.util.spec_from_file_location(
+        "verify_artifacts_under_test", ROOT / "packaging" / "verify-artifacts.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    listed = (
+        "-rwxr-xr-x    1 root     root       123 Oct 23 14:38 "
+        "/usr/lib/blackdream/dump_acpi_tables.py\n"
+        "-rw-r--r--    1 root     root      6092 Oct 23 14:38 "
+        "/opt/blackdream/_internal/blackdream/hardware/dump_acpi_tables.py\n"
+        "lrwxrwxrwx    1 root     root         4 Oct 23 14:38 "
+        "/usr/bin/blackdream -> ../lib/blackdream/BlackDream\n")
+    monkeypatch.setattr(module, "require", lambda tool, package: tool)
+    monkeypatch.setattr(module.subprocess, "run", lambda *a, **k: SimpleNamespace(
+        returncode=0, stdout=listed, stderr=""))
+
+    assert module.package_listing(tmp_path / "blackdream.rpm") == [
+        ("/usr/lib/blackdream/dump_acpi_tables.py", "-rwxr-xr-x", "root"),
+        ("/opt/blackdream/_internal/blackdream/hardware/dump_acpi_tables.py",
+         "-rw-r--r--", "root"),
+        ("/usr/bin/blackdream", "lrwxrwxrwx", "root"),
+    ]
+
+
 def test_the_macos_floor_is_measured_not_asserted():
     """PySide6 6.12's wheels are tagged ``macosx_14_0``. A plist that promises an older
     macOS lets Finder launch a bundle whose Qt cannot load, so the spec reads the floor
