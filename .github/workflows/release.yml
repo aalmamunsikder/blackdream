@@ -72,6 +72,7 @@ jobs:
       # commit. Without the clone those tests skip, and the beta would be signed off by a
       # suite that silently did less work than the one on the development machine.
       - name: Clone pristine OpCore Simplify at the pinned commit
+        shell: bash
         env:
           GIT_TERMINAL_PROMPT: "0"
         run: |

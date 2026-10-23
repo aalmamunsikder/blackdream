@@ -167,7 +167,10 @@ def test_absent_sections_are_read_from_the_schema_not_a_hardcoded_list():
 @pytest.mark.skipif(not LINUX, reason="needs a Linux sysfs to scan")
 def test_a_real_scan_is_accepted_and_graded_by_the_engine(sink, tmp_path):
     """The end-to-end claim, measured on this machine rather than asserted."""
-    collected = ReportCollector().collect(tmp_path)
+    try:
+        collected = ReportCollector().collect(tmp_path)
+    except CollectionRejected as refusal:
+        pytest.fail("this machine's scan was rejected: {}".format(refusal.detail))
     assert collected.report_path.name == "Report.json"
 
     analysis = Pipeline().analyze(Pipeline().load_report(collected.report_path))
@@ -179,7 +182,10 @@ def test_a_real_scan_is_accepted_and_graded_by_the_engine(sink, tmp_path):
 def test_a_real_scan_names_the_identifiers_the_engine_can_use(sink, tmp_path):
     from ocengine.datasets import chipset_data, cpu_data
 
-    report = ReportCollector().collect(tmp_path).report
+    try:
+        report = ReportCollector().collect(tmp_path).report
+    except CollectionRejected as refusal:
+        pytest.fail("this machine's scan was rejected: {}".format(refusal.detail))
     cpu_codename = report["CPU"]["Codename"]
     chipset = report["Motherboard"]["Chipset"]
 
