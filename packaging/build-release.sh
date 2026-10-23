@@ -136,11 +136,21 @@ step "checksums"
 (
   cd "$OUT"
   rm -f SHA256SUMS.txt
-  for artifact in *; do
-    [[ -f "$artifact" && "$artifact" != SHA256SUMS.txt ]] || continue
-    sha256sum "$artifact" >> SHA256SUMS.txt
-  done
-  cat SHA256SUMS.txt
+  # Python, not ``sha256sum``: macOS ships BSD ``shasum`` only, and the file has to be
+  # byte-identical in shape to the one verify-artifacts.py reads back.
+  "$PY" - <<'PY'
+import hashlib
+import pathlib
+
+lines = []
+for artifact in sorted(pathlib.Path(".").iterdir()):
+    if artifact.is_file() and artifact.name != "SHA256SUMS.txt":
+        lines.append("{}  {}".format(
+            hashlib.sha256(artifact.read_bytes()).hexdigest(), artifact.name))
+index = pathlib.Path("SHA256SUMS.txt")
+index.write_text("\n".join(lines) + "\n", encoding="utf-8")
+print(index.read_text(encoding="utf-8"), end="")
+PY
 )
 
 # Open the finished artifacts and check them against what the release claims: no

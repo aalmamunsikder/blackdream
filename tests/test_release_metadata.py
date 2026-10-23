@@ -242,6 +242,9 @@ def test_the_release_script_parses_and_runs_the_gates_in_order():
     assert positions == sorted(positions), "the gates do not run in order"
     for platform in ("linux", "macos", "windows"):
         assert platform in SCRIPT, "no launcher path for {}".format(platform)
+    # macOS ships BSD ``shasum``, not GNU ``sha256sum``, so the index is written in
+    # Python; the build script is the same file on all three hosts.
+    assert 'sha256sum "$artifact"' not in SCRIPT
     assert 'QT_QPA_PLATFORM=offscreen "$LAUNCHER" --smoke' in SCRIPT
 
 

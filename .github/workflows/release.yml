@@ -1,13 +1,17 @@
 # Build, test and publish the beta artifacts on GitHub's runners.
-# PyInstaller builds an executable for the machine it runs on, so a Windows .exe cannot
-# be produced on Linux. Every leg therefore runs the same packaging/build-release.sh the
-# development machine runs, and the runner is the only difference between the local
-# artifact and the CI one.
+# PyInstaller builds an executable for the machine it runs on, so a Windows .exe and a
+# Mach-O .app cannot be produced on Linux. Every leg therefore runs the same
+# packaging/build-release.sh the development machine runs, and the runner is the only
+# difference between the local artifact and the CI one.
 #
 # ARM64 is not built, and not because the runners are hard to find: OpenCore boots x86_64
 # and i386 firmware, and every tool this app fetches at run time -- ocvalidate, macserial
 # and iasl from OpenCorePkg and MaciASL, Hardware Sniffer's CLI -- is an x86_64 binary. An
 # ARM64 bundle would start and then fail at the one step that matters.
+#
+# The macOS leg is pinned to an Intel runner (macos-15-intel) because the product targets
+# x86_64 Macs and because the resulting .app runs on Apple Silicon under Rosetta 2. The
+# PySide6 wheels are universal2, so the same bundle carries an arm64 Qt slice.
 #
 # ubuntu-22.04 rather than ubuntu-latest, and this is the whole reason the Linux beta is
 # built here instead of on a development machine: PyInstaller copies the build host's own
@@ -42,6 +46,8 @@ jobs:
             name: linux-amd64
           - runner: windows-latest
             name: windows-amd64
+          - runner: macos-15-intel
+            name: macos-x64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
