@@ -79,6 +79,38 @@ def macos_floor(default: str = "14.0") -> str:
 
 MACOS_FLOOR = macos_floor() if sys.platform == "darwin" else "14.0"
 
+
+def windows_version_file(version: str, label: str) -> str:
+    """The path to a Windows version resource for ``EXE(version=...)``.
+
+    That argument is a file, not a string: handing it ``"0.9.0"`` made PyInstaller
+    open a file named ``0.9.0`` beside the spec and fail. The file is written into
+    the generated ``build`` directory, so nothing platform-specific enters the repo.
+    """
+    parts = ([int(part) for part in version.split(".")] + [0, 0, 0, 0])[:4]
+    numbers = ", ".join(str(part) for part in parts)
+    text = """VSVersionInfo(
+  ffi=FixedFileInfo(filevers=({numbers}), prodvers=({numbers}), mask=0x3f,
+                    flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0,
+                    date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+        StringStruct('CompanyName', 'BlackDream'),
+        StringStruct('FileDescription', 'BlackDream - macOS compatibility check and OpenCore EFI builder'),
+        StringStruct('FileVersion', '{version}'),
+        StringStruct('InternalName', 'BlackDream'),
+        StringStruct('OriginalFilename', 'BlackDream.exe'),
+        StringStruct('ProductName', 'BlackDream'),
+        StringStruct('ProductVersion', '{label}')])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+""".format(numbers=numbers, version=version, label=label)
+    path = ROOT / "build" / "win-version.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
 datas = []
 for package in ("ocengine", "blackdream", "certifi"):
     datas += collect_data_files(package)
@@ -187,7 +219,8 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=ICON,
-    version=NUMERIC_VERSION if sys.platform == "win32" else None,
+    version=(windows_version_file(NUMERIC_VERSION, RELEASE_LABEL)
+             if sys.platform == "win32" else None),
 )
 
 coll = COLLECT(

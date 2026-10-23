@@ -39,6 +39,28 @@ ICONS = ROOT / "packaging" / "icons"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
+def test_the_windows_version_resource_is_a_file_pyinstaller_can_read(tmp_path):
+    """``EXE(version=...)`` takes a path, and PyInstaller opened a file literally named
+    ``0.9.0`` until the spec wrote one. Parse the generated text with PyInstaller's own
+    loader, so the file is proven readable without a Windows machine."""
+    import ast
+
+    versioninfo = pytest.importorskip("PyInstaller.utils.win32.versioninfo")
+    tree = ast.parse(SPEC)
+    function = next(node for node in tree.body
+                    if isinstance(node, ast.FunctionDef)
+                    and node.name == "windows_version_file")
+    namespace = {"ROOT": tmp_path}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), "<spec>", "exec"),
+         namespace)
+
+    written = Path(namespace["windows_version_file"]("0.9.0", "0.9.0-beta.1"))
+
+    assert written == tmp_path / "build" / "win-version.txt"
+    info = versioninfo.load_version_info_from_text_file(str(written))
+    assert info is not None
+
+
 def test_the_label_is_the_version_a_person_reads():
     """``0.9.0b1`` is what a package index wants; ``0.9.0-beta.1`` is what the About
     card, the notes and the archive name want. One source, two spellings."""
