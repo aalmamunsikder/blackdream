@@ -51,9 +51,9 @@ not involve money; no payment link exists yet).
 
 | Environment | Status |
 | --- | --- |
-| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | **this is the build being shipped**; all three workflows exercised, 634 automated tests |
+| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | **this is the build being shipped**; all three workflows exercised, 637 automated tests |
 | Windows 10/11 | code paths present, unit-tested against recorded fixtures on Linux; **no native run of this beta artifact** |
-| macOS 12+ | code paths present, `LSMinimumSystemVersion` 12.0; **no native run of this beta artifact** |
+| macOS 14+ | code paths present, `LSMinimumSystemVersion` 14.0 because PySide6 6.12's wheels are `macosx_14_0`; **no native run of this beta artifact** |
 | CPython 3.11–3.13 | syntax-verified against the 3.11 grammar; **not executed** |
 
 Hardware coverage in this cycle is one real desktop machine plus the synthetic and
@@ -62,11 +62,12 @@ of the product.
 
 ## Known issues and limitations
 
-* **The Linux ACPI helper is not installed for you.** In an unpacked bundle the helper is
-  user-writable, so polkit will refuse it. Follow the two `sudo install` / `sudo cp`
-  commands in `README.md`, or point **ACPI tables** at `.aml` tables you exported
-  elsewhere. Declining the authorization window is reported as a refusal, never as a
-  hardware fault.
+* **The Linux ACPI helper needs the package, not the archive.** The `.deb` and `.rpm`
+  install it root-owned at the path polkit authorizes, and that is the whole reason they
+  exist. From an unpacked archive the helper is user-writable, so polkit will refuse it:
+  follow the two `sudo install` / `sudo cp` commands in `README.md`, or point **ACPI
+  tables** at `.aml` tables you exported elsewhere. Declining the authorization window is
+  reported as a refusal, never as a hardware fault.
 * **Only FAT32 volumes appear as installer targets**, and only if they are already
   mounted and writable by your session. An NTFS or ext4 stick is not offered, because
   firmware on the target machine has to read the volume.
@@ -107,8 +108,15 @@ Every build publishes three files into `dist/release/`, named:
 | Name | What it is |
 | --- | --- |
 | `BlackDream-0.9.0-beta.1-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows |
+| `blackdream_0.9.0b1_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
+| `blackdream-0.9.0b1-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
 | `blackdream-0.9.0b1-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
 | `blackdream-0.9.0b1.tar.gz` | the source distribution |
+
+A Linux bundle needs glibc 2.35 or newer. That is not a preference: the build measures
+the versioned symbols inside the shipped Qt and glib libraries and refuses to publish a
+bundle that asks for more, so Ubuntu 22.04, Debian 12, Fedora 36 and everything newer
+can run it.
 
 `SHA256SUMS.txt` in the same folder gives the SHA-256 of each of them, and
 `packaging/verify-artifacts.py` recomputes every digest in that file from the bytes on

@@ -256,11 +256,18 @@ def test_the_notes_describe_every_name_the_build_publishes():
     assert published, "dist/release holds nothing but, maybe, a checksums file"
     scheme = (r"BlackDream-{}-(?:linux|macos|windows)-(?:amd64|arm64)\.(?:tar\.gz|zip)"
               .format(re.escape(RELEASE_LABEL)),
+              r"blackdream_{}_(?:amd64|arm64)\.deb".format(re.escape(__version__)),
+              r"blackdream-{}-1\.(?:x86_64|aarch64)\.rpm".format(re.escape(__version__)),
               r"blackdream-{}-py3-none-any\.whl".format(re.escape(__version__)),
               r"blackdream-{}\.tar\.gz".format(re.escape(__version__)))
-    for pattern in scheme:
-        assert any(re.fullmatch(pattern, name) for name in published), \
-            "the notes promise something matching {}, and nothing does".format(pattern)
+    # The notes name the scheme, which has to hold on a host that cannot build every
+    # kind -- an RPM needs rpmbuild, a .zip only exists on Windows.
+    for name in ("BlackDream-{}-<os>-<arch>.tar.gz".format(RELEASE_LABEL),
+                 "blackdream_{}_<arch>.deb".format(__version__),
+                 "blackdream-{}-1.<arch>.rpm".format(__version__),
+                 "blackdream-{}-py3-none-any.whl".format(__version__),
+                 "blackdream-{}.tar.gz".format(__version__)):
+        assert name in NOTES, "the notes do not name {}".format(name)
     for name in published:
         assert any(re.fullmatch(pattern, name) for pattern in scheme), \
             "{} is a name the notes do not describe".format(name)
@@ -314,3 +321,37 @@ def test_no_machine_specific_path_is_shipped_in_the_sources(directory):
             if pattern in text:
                 offenders.append("{}: {}".format(path.relative_to(ROOT), pattern))
     assert offenders == []
+
+
+def test_the_linux_packages_are_part_of_the_release_build():
+    """A .deb and an .rpm are the only artifacts that can install the ACPI helper where
+    polkit will authorize it. If the release script stops producing them, the notes and
+    the README would still tell testers to install one."""
+    assert SCRIPT.count("make-linux-packages.py") == 1
+    assert 'MIN_GLIBC="2.35"' in SCRIPT
+    assert "--min-glibc" in SCRIPT
+    audit = (ROOT / "packaging" / "verify-artifacts.py").read_text(encoding="utf-8")
+    assert "audit_package(" in audit
+    assert 'is_package(artifact)' in audit
+
+
+def test_the_packages_install_the_helper_where_polkit_looks_for_it():
+    """Two files state this path -- the polkit action's ``exec.path`` and the packaging
+    script's destination -- and the app's own ``INSTALLED_HELPER``. A package that put
+    the helper anywhere else would install successfully and authorize nothing."""
+    from blackdream.hardware.acpi import INSTALLED_HELPER
+
+    packages = (ROOT / "packaging" / "make-linux-packages.py").read_text(encoding="utf-8")
+    action = (ROOT / "src" / "blackdream" / "hardware"
+              / "com.blackdream.dumpacpi.policy").read_text(encoding="utf-8")
+    assert str(INSTALLED_HELPER) in packages
+    assert ("<annotate key=\"org.freedesktop.policykit.exec.path\">{}</annotate>"
+            .format(INSTALLED_HELPER)) in action
+
+
+def test_the_macos_floor_is_measured_not_asserted():
+    """PySide6 6.12's wheels are tagged ``macosx_14_0``. A plist that promises an older
+    macOS lets Finder launch a bundle whose Qt cannot load, so the spec reads the floor
+    from the framework it is about to bundle."""
+    assert '"LSMinimumSystemVersion": MACOS_FLOOR' in SPEC
+    assert "vtool" in SPEC and "minos" in SPEC

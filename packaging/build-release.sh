@@ -49,6 +49,9 @@ PLATFORM_TAG="${OS}-${ARCH}"
 OUT="$ROOT/dist/release"
 BUNDLE="$ROOT/dist/BlackDream"
 APP_NAME="BlackDream-${LABEL}-${PLATFORM_TAG}"
+# The oldest glibc a Linux build is allowed to require; verify-artifacts.py measures the
+# finished bundle against it and the packages state it as a dependency.
+MIN_GLIBC="2.35"
 
 # PyInstaller puts the launcher in a different place on every platform, and macOS
 # wraps the directory in a .app.
@@ -117,6 +120,15 @@ if [[ "$OS" == windows ]]; then
 else
   ARCHIVE="$OUT/${APP_NAME}.tar.gz"
   tar -czf "$ARCHIVE" -C "$(dirname "$BUNDLE")" "$(basename "$BUNDLE")"
+fi
+
+# A package is the only artifact that can hand polkit a root-owned helper at the path its
+# action names. It carries the same bundle bytes as the archive, so it is built from the
+# same directory, after the archive, and audited with everything else below.
+if [[ "$OS" == linux ]]; then
+  step "deb and rpm"
+  "$PY" packaging/make-linux-packages.py --bundle "$BUNDLE" --out "$OUT" \
+        --version "$VERSION" --min-glibc "$MIN_GLIBC"
 fi
 
 

@@ -48,6 +48,37 @@ elif sys.platform == "darwin":
 else:
     ICON = None
 
+
+def macos_floor(default: str = "14.0") -> str:
+    """The oldest macOS the bundled Qt will load on.
+
+    ``LSMinimumSystemVersion`` is a promise Finder enforces: with a floor lower than the
+    one Qt was compiled for, macOS launches the bundle and dyld then fails on a missing
+    symbol. PySide6 6.12 ships ``macosx_14_0`` wheels, so 12.0 was a promise this build
+    could not keep. The answer is read from the framework being bundled, not repeated
+    from a table; the fallback is only used if ``vtool`` is unavailable.
+    """
+    import re
+    import subprocess
+
+    try:
+        import PySide6
+
+        qt = Path(PySide6.__file__).parent / "Qt" / "lib"
+        binary = qt / "QtCore.framework" / "Versions" / "A" / "QtCore"
+        if not binary.is_file():
+            binary = qt / "QtCore.framework" / "QtCore"
+        listed = subprocess.run(["vtool", "-show-build", str(binary)],
+                                capture_output=True, text=True, check=False).stdout
+        found = [tuple(int(part) for part in value.split("."))
+                 for value in re.findall(r"minos (\d+(?:\.\d+)+)", listed)]
+        return "{}.{}".format(*max(found)) if found else default
+    except Exception:
+        return default
+
+
+MACOS_FLOOR = macos_floor() if sys.platform == "darwin" else "14.0"
+
 datas = []
 for package in ("ocengine", "blackdream", "certifi"):
     datas += collect_data_files(package)
@@ -64,6 +95,15 @@ for document in ("LICENSE", "README.md", "docs/THIRD-PARTY.md",
     source = ROOT / document
     if source.is_file():
         datas.append((str(source), "licenses"))
+
+# The privileged ACPI helper has to exist as a file on disk, not as a module inside the
+# bundle's import archive: polkit runs it with the *system* interpreter, and the app only
+# accepts a copy that root owns and nobody else can write. ``collect_data_files`` skips it
+# precisely because it is a .py, so without this line the shipped bundle carries its polkit
+# action but not the program that action authorises, and the install step in README.md has
+# nothing to point at.
+datas.append((str(SRC / "blackdream" / "hardware" / "dump_acpi_tables.py"),
+              "blackdream/hardware"))
 
 # Qt modules the window never imports. PySide6's hook otherwise collects every
 # module installed in the environment, including the WebEngine runtime, which
@@ -172,7 +212,7 @@ if sys.platform == "darwin":
             "CFBundleName": "BlackDream",
             "CFBundleShortVersionString": RELEASE_LABEL,
             "CFBundleVersion": NUMERIC_VERSION,
-            "LSMinimumSystemVersion": "12.0",
+            "LSMinimumSystemVersion": MACOS_FLOOR,
             "NSHighResolutionCapable": True,
             "NSRequiresAquaSystemAppearance": False,
         },

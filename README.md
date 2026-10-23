@@ -40,8 +40,18 @@ records how many tests passed for this specific build.
 Unpack the release archive and run the binary inside:
 
 ```sh
-tar -xzf BlackDream-0.9.0-beta.1-linux-x86_64.tar.gz
+tar -xzf BlackDream-0.9.0-beta.1-linux-amd64.tar.gz
 ./BlackDream/BlackDream
+```
+
+On Debian, Ubuntu, Fedora or openSUSE, install the package instead — it puts the
+launcher on `PATH`, writes the desktop entry and icons, and installs the ACPI helper
+below as root, which the archive cannot do:
+
+```sh
+sudo apt install ./blackdream_0.9.0b1_amd64.deb     # Debian, Ubuntu
+sudo dnf install ./blackdream-0.9.0b1-1.x86_64.rpm  # Fedora, openSUSE
+blackdream
 ```
 
 Or install the wheel into a Python 3.11+ environment with PySide6 available:
@@ -64,7 +74,8 @@ is root-only, and a build that lacks it cannot patch ACPI. BlackDream ships a he
 that single read, and polkit — not the app — asks for authorization in its own window.
 BlackDream never has a password field and never asks for `sudo` inside itself.
 
-The helper is only used when it is installed where the calling user cannot edit it:
+The helper is only used when it is installed where the calling user cannot edit it. The
+`.deb` and `.rpm` do this for you. From an unpacked archive, install it yourself:
 
 ```sh
 sudo install -m 0755 -o root -g root \

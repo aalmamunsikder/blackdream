@@ -14,6 +14,8 @@ in those files, and the only way to know is to open them:
   binary must never land where Python could import it.
 * Every license text and vendor notice has to be where a tester will find it, inside the
   wheel, inside the sdist and next to the launcher.
+* A .deb or .rpm has to install the ACPI helper as root-owned and world-unwritable at the
+  path the polkit action names -- an unpacked archive cannot, which is why they exist.
 * ``SHA256SUMS.txt`` has to describe the bytes that are actually there.
 
 Run from anywhere::
@@ -28,6 +30,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import re
+import shutil
+import subprocess
 import sys
 import tarfile
 import tomllib
@@ -38,9 +42,20 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from blackdream import RELEASE_LABEL, __version__  # noqa: E402
+from blackdream.hardware.acpi import INSTALLED_HELPER  # noqa: E402
 
 #: Byte sequences that mean "this is an executable", not "this is a source file".
 MAGICS = (b"\x7fELF", b"MZ", b"\xfe\xed\xfa\xce", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
+
+#: Oldest glibc the Linux bundle is allowed to require.
+#:
+#: PyInstaller copies the build host's own ``libglib-2.0``, ``liblcms2``, ``libmount`` and
+#: friends into the bundle, and those carry versioned references to the glibc they were
+#: compiled against. A bundle built on a 2026 distro therefore asks for 2026 symbols and
+#: will not start on the Ubuntu or Debian release the tester is actually running, however
+#: portable the Python inside it looks. The floor is measured from the finished bundle
+#: rather than assumed, and a build that misses it is refused.
+SUPPORTED_GLIBC = (2, 35)
 
 TOOLS = ("iasl", "macserial", "macserial.exe", "macserial.linux",
          "ocvalidate", "ocvalidate.exe", "ocvalidate.linux")
@@ -93,6 +108,81 @@ def is_archive(path: Path) -> bool:
     return path.name.endswith((".whl", ".tar.gz", ".tgz", ".zip"))
 
 
+def is_package(path: Path) -> bool:
+    """A Linux .deb or .rpm: the same bundle, plus the files a package has to own."""
+    return path.suffix in (".deb", ".rpm")
+
+
+#: What a package must own beyond the bundle itself. The helper and its polkit action are
+#: the point of the format: an unpacked archive cannot offer a root-owned helper.
+PACKAGE_FILES = ("BlackDream", "dump_acpi_tables.py", "com.blackdream.dumpacpi.policy",
+                 "blackdream.desktop", "LICENSE", "THIRD-PARTY.md", "RELEASE-NOTES.md",
+                 "README.md")
+
+
+def require(tool: str, package: str) -> str:
+    found = shutil.which(tool)
+    if found is None:
+        raise SystemExit("{} is needed to read {} back; install the {} package on the "
+                         "build host".format(tool, tool, package))
+    return found
+
+
+def package_listing(path: Path):
+    """``(install path, mode string, owner)`` for every file a package installs, read back
+    with the host's own tooling rather than a reimplementation of two archive formats."""
+    if path.suffix == ".deb":
+        listed = subprocess.run([require("dpkg-deb", "dpkg"), "-c", str(path)],
+                                capture_output=True, text=True, check=False)
+        rows = [line.split() for line in listed.stdout.splitlines() if line.strip()]
+        # ``-rwxr-xr-x root/root 123 2026-10-23 12:00 ./usr/bin/blackdream``
+        return [(row[5].lstrip("."), row[0], row[1].split("/")[0])
+                for row in rows if len(row) > 5]
+    listed = subprocess.run([require("rpm", "rpm"), "-qvl", str(path)],
+                            capture_output=True, text=True, check=False)
+    if listed.returncode != 0:
+        raise SystemExit("rpm -qvl {} failed: {}".format(path.name, listed.stderr))
+    rows = [line.split() for line in listed.stdout.splitlines() if line.strip()]
+    # ``-rwxr-xr-x root root 123 Oct 23 2026 /usr/bin/blackdream``
+    return [(row[-1], row[0], row[1]) for row in rows if len(row) > 4]
+
+
+def audit_package(path: Path, problems: list) -> None:
+    """A .deb or .rpm is the only artifact that can give polkit what it wants: the helper
+    at the path the action names, owned by root and writable by nobody else. Read the
+    package's own manifest back and check exactly that."""
+    if __version__ not in path.name:
+        problems.append("{} is not the version the package reports".format(path.name))
+    entries = package_listing(path)
+    if not entries:
+        problems.append("{} could not be read back".format(path.name))
+        return
+    basenames = {Path(name).name: name for name, _mode, _owner in entries}
+    for tool in TOOLS:
+        if tool in basenames:
+            problems.append("{} ships the run-time tool {}".format(path.name, tool))
+    for wanted in PACKAGE_FILES:
+        if wanted not in basenames:
+            problems.append("{} installs no {}".format(path.name, wanted))
+    for name, mode, owner in entries:
+        leaf = Path(name).name
+        # A helper that the calling user could edit, or that belongs to the account that
+        # built the package, is one polkit will not authorize. These two checks are the
+        # reason the packages exist at all. Only the installed path counts: the bundle
+        # carries its own copy under /opt, which polkit never looks at.
+        if name == str(INSTALLED_HELPER):
+            if not mode.endswith("rwxr-xr-x"):
+                problems.append("{} installs {} as {}, which polkit will refuse".format(
+                    path.name, name, mode))
+            if owner != "root":
+                problems.append("{} installs {} owned by {}, which polkit will "
+                                "refuse".format(path.name, name, owner))
+        if leaf == "com.blackdream.dumpacpi.policy" and "w" in mode[-3:]:
+            problems.append("{} installs the polkit action world-writable".format(path.name))
+        if name.endswith("/BlackDream") and not mode.endswith("x"):
+            problems.append("{} installs the launcher as {}".format(path.name, mode))
+
+
 def is_source_artifact(path: Path) -> bool:
     """A wheel, or the sdist -- not the unpacked-application archive beside them."""
     return path.suffix == ".whl" or (path.name.startswith("blackdream-")
@@ -103,6 +193,10 @@ def audit_release(release: Path, problems: list):
     built = []
     for artifact in sorted(release.iterdir()):
         if artifact.name == "SHA256SUMS.txt" or not artifact.is_file():
+            continue
+        if is_package(artifact):
+            built.append(artifact)
+            audit_package(artifact, problems)
             continue
         if not is_archive(artifact):
             problems.append("{} is not an artifact this audit understands".format(
@@ -175,6 +269,36 @@ def audit_bundle(bundle: Path, problems: list) -> None:
             problems.append("bundle ships {} instead of fetching and verifying it".format(tool))
     if not any(path.name == "licenses" and path.is_dir() for path in bundle.rglob("*")):
         problems.append("bundle has no licenses directory inside _internal")
+    # The one thing in the bundle that a tester is told to install by hand. If it is not
+    # there, the README's instruction is a dead end and the ACPI step silently degrades to
+    # "export the tables somewhere else" on every platform that has no package.
+    helper = bundle / "_internal" / "blackdream" / "hardware" / "dump_acpi_tables.py"
+    if not helper.is_file():
+        problems.append("bundle carries no dump_acpi_tables.py, so nothing can be "
+                        "installed to {}".format(INSTALLED_HELPER))
+
+
+def bundle_glibc_floor(bundle: Path):
+    """Highest ``GLIBC_x.y`` symbol version any ELF in the bundle asks for, and the file
+    that asked for it. Measured with ``objdump`` because the answer is in the binary, not
+    in the build recipe."""
+    objdump = shutil.which("objdump")
+    if objdump is None:
+        raise SystemExit("objdump is needed to measure the bundle's glibc floor")
+    floor, worst = (0, 0), None
+    for path in sorted(bundle.rglob("*")):
+        if not path.is_file():
+            continue
+        with path.open("rb") as handle:
+            if not handle.read(4).startswith(b"\x7fELF"):
+                continue
+        listed = subprocess.run([objdump, "-T", str(path)],
+                                capture_output=True, text=True, check=False)
+        for match in re.finditer(r"GLIBC_(\d+\.\d+)", listed.stdout):
+            version = tuple(int(part) for part in match.group(1).split("."))
+            if version > floor:
+                floor, worst = version, path
+    return floor, worst
 
 
 def audit_index(release: Path, problems: list) -> int:
@@ -219,6 +343,18 @@ def main() -> int:
     bundle = args.root / "BlackDream"
     audit_bundle(bundle, problems)
 
+    # The floor only means something for the Linux bundle; on the other two platforms
+    # there is no glibc in the artifact to measure.
+    floor = None
+    if sys.platform.startswith("linux") and bundle.is_dir():
+        floor, worst = bundle_glibc_floor(bundle)
+        if floor > SUPPORTED_GLIBC:
+            problems.append(
+                "the bundle needs glibc {}.{}, because PyInstaller copied {} from this "
+                "build host, but the release supports {}.{}: build it on a host with an "
+                "older glibc, or use --bundle-only for a local test bundle".format(
+                    floor[0], floor[1], worst.name, *SUPPORTED_GLIBC))
+
     for line in problems:
         print("FAIL  {}".format(line), file=sys.stderr)
     if problems:
@@ -230,6 +366,9 @@ def main() -> int:
     print("  {:<56} {:>12,} entries".format("checksums verified", verified))
     print("  {:<56} {:>12,} files".format(str(bundle),
                                           sum(1 for _ in bundle.rglob("*"))))
+    if floor is not None:
+        print("  {:<56} glibc {}.{} (supports {}.{})".format(
+            "measured bundle floor", floor[0], floor[1], *SUPPORTED_GLIBC))
     return 0
 
 

@@ -100,7 +100,7 @@ folder, with no terminal.
 | Chrome | The platform's own title bar, window buttons and resize borders. A `QMenuBar` (`File` · `View` · `Help`) is visible on every platform; macOS draws it in the system bar outside the window. No painted window controls |
 | Themes | `System` (follows the desktop), `Light`, `Dark`; each resolves to its own wallpaper, veil and glass palette |
 | Surfaces | Wallpaper **inside** the window, a frosted sidebar and content veil above it, and translucent cards, fields and a dark log above those. No desktop wallpaper outside the window, no floating panel, no inset band and no drop shadows |
-| Platforms | macOS 12+, Windows 10/11, Linux (X11 + Wayland) |
+| Platforms | macOS 14+, Windows 10/11, Linux (X11 + Wayland) |
 | Engine | Vendored OpCore Simplify (BSD-3), driven headless |
 | Navigation | Fixed 200 px sidebar with three workflow sections: `Installer` · `Build EFI` · `Configure EFI`, plus three utility views at the bottom: `Settings` · `Help` · `Donate`. `Build EFI` shows three segment tabs: `Compatibility` · `Build` · `Logs` |
 | Input model | Report file is dropped or picked; paths are never typed |
