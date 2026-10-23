@@ -1,0 +1,90 @@
+# Two legs: Linux x86_64 and Windows x86_64.
+#
+# PyInstaller builds an executable for the machine it runs on, so a Windows .exe cannot
+# be produced on Linux. Every leg therefore runs the same packaging/build-release.sh the
+# development machine runs, and the runner is the only difference between the local
+# artifact and the CI one.
+#
+# ARM64 is not built, and not because the runners are hard to find: OpenCore boots x86_64
+# and i386 firmware, and every tool this app fetches at run time -- ocvalidate, macserial
+# and iasl from OpenCorePkg and MaciASL, Hardware Sniffer's CLI -- is an x86_64 binary. An
+# ARM64 bundle would start and then fail at the one step that matters.
+#
+# ubuntu-22.04 rather than ubuntu-latest, and this is the whole reason the Linux beta is
+# built here instead of on a development machine: PyInstaller copies the build host's own
+# system libraries into the bundle, so a bundle built on a current distro inherits that
+# distro's glibc symbols. The floor is measured and enforced by verify-artifacts.py.
+#
+# Each leg rebuilds the wheel and the sdist as well, because build-release.sh is one gate
+# rather than four half-gates; the duplicate names are resolved in the publish job, which
+# takes the Python distributions from one leg only. That matters: a wheel built on Windows
+# and a wheel built on Linux have the same name and different bytes, and publishing both
+# would be two files claiming to be the same artifact.
+
+name: Build beta artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      # One platform failing to build is a fact about that platform, not a reason to
+      # cancel the other.
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            name: linux-amd64
+          - runner: windows-latest
+            name: windows-amd64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same interpreter the release notes name as the tested environment. The wheel
+      # is py3-none-any, but every bundle embeds whichever Python built it.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      # Qt needs these to construct a QGuiApplication even on the offscreen platform,
+      # and the runner image does not guarantee all of them. ``rpm`` provides rpmbuild and
+      # the ``rpm -qvl`` that the artifact audit reads the .rpm back with.
+      - name: Linux Qt runtime libraries
+        if: startsWith(matrix.name, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1 libglib2.0-0 \
+            rpm
+
+      - name: Install the package and its build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      # tests/ diffs the vendored engine against untouched upstream at the pinned
+      # commit. Without the clone those tests skip, and the beta would be signed off by a
+      # suite that silently did less work than the one on the development machine.
+      - name: Clone pristine OpCore Simplify at the pinned commit
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          git clone https://github.com/lzhoang2801/OpCore-Simplify.git ../OpCore-Simplify
+          git -C ../OpCore-Simplify checkout --detach \
+            f0e1e441bb455c33e9695a9c9c50e8ca931d4de8
+
+      - name: Test, bundle, build wheel and sdist, verify the artifacts
+        shell: bash
+        run: bash packaging/build-release.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlackDream-${{ matrix.name }}
+          path: dist/release
