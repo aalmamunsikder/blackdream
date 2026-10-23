@@ -232,6 +232,11 @@ def test_a_stage_event_updates_the_existing_rows(make_window):
 def test_the_ticker_sleeps_while_idle_and_wakes_for_work(make_window):
     window = make_window()
 
+    # The window opens on the Installer page, which starts its first USB scan while
+    # it is built. Whether that scan has finished by the first event-loop pass
+    # depends on how long enumerating drives takes on the host, so "idle" is stated
+    # here instead of assumed.
+    window._set_ticker_interval(False)
     assert window._ticker.interval() == 400
     window._set_ticker_interval(True)
     assert window._ticker.interval() == 60

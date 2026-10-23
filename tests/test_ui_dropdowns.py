@@ -77,6 +77,8 @@ def make_window(qapp, monkeypatch):
 
 def test_non_editable_combos_drop_below_the_field(qapp, make_window):
     """The popup must start at or below the field's bottom edge."""
+    if sys.platform == "darwin":
+        pytest.skip("macOS keeps the native menu-style popup; the overlap is expected there")
     window = make_window()
     window.resize(1240, 760)
     # Switch before show: offscreen defers the hidden page's layout until the
