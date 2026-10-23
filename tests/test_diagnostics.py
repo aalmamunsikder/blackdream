@@ -7,7 +7,9 @@ entries the user left selected.
 
 from __future__ import annotations
 
+import ast
 import zipfile
+from pathlib import Path
 
 from blackdream.core import diagnostics
 
@@ -204,3 +206,17 @@ def test_removing_an_entry_by_name():
     bundle.remove("a.txt")
 
     assert [entry.name for entry in bundle.entries] == ["b.txt"]
+
+
+def test_the_bundle_code_imports_nothing_that_can_reach_the_network():
+    """The export is local: a module that cannot import a client cannot send one."""
+    source = Path(diagnostics.__file__).read_text(encoding="utf-8")
+    imported = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    network = {"urllib", "http", "socket", "requests", "httpx", "ftplib",
+               "smtplib", "ssl", "telnetlib", "xmlrpc"}
+    assert not imported & network

@@ -1040,6 +1040,17 @@ def test_generate_serials_confirms_before_touching_the_document(
         "Generated SMBIOS values for MacPro7,1.")
     assert window.config_status.text() == "Unsaved changes"
 
+    # Identity values are one snapshot too; undo puts the old ones back.
+    window._on_config_undo()
+    qapp.processEvents()
+    generic = window._config_doc.data["PlatformInfo"]["Generic"]
+    assert "SystemSerialNumber" not in generic
+    assert generic["ROM"] == b"\x11\x22\x33\x44\x55\x66"
+    window._on_config_redo()
+    qapp.processEvents()
+    assert window._config_doc.data["PlatformInfo"]["Generic"][
+        "SystemSerialNumber"] == "C02TEST"
+
 
 def test_a_data_value_opens_in_the_hex_editor(
         make_window, qapp, tmp_path, monkeypatch):
@@ -1183,6 +1194,12 @@ def test_inserting_a_preset_appends_the_patch_entry(
     assert window._config_selected_path() == ("ACPI", "Patch", 0)
     assert window.config_detail.text() == "Inserted {}.".format(chosen.title)
     assert window.config_status.text() == "Unsaved changes"
+
+    # A preset insertion is one snapshot like any other edit, so it walks back.
+    assert window.config_undo.isEnabled()
+    window._on_config_undo()
+    qapp.processEvents()
+    assert "Patch" not in window._config_doc.data["ACPI"]
 
 
 def test_inserting_the_same_preset_again_selects_the_existing_entry(
