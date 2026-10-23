@@ -80,7 +80,9 @@ def _digest(path: Path) -> str:
 
 def _files(root: Path) -> list[Path]:
     found = []
-    for path in sorted(root.rglob("*")):
+    # Sort the strings, not the Path objects: WindowsPath compares case-insensitively,
+    # so a Path sort orders the same tree differently on Windows than on Linux.
+    for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
         name = path.name
         if not path.is_file() or name in NOISE:
             continue
