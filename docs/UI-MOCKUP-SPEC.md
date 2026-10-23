@@ -1,6 +1,6 @@
 # BlackDream — UI mockup specification
 
-**Version:** 3.4 · **Date:** 2026-10-23 · **Status:** every screen marked *built* is running code today
+**Version:** 3.5 · **Date:** 2026-10-23 · **Status:** every screen marked *built* is running code today
 
 3.0 is the shipped app window. It uses the **native window frame and title bar** on every platform
 and shows the real `File` / `View` / `Help` menu bar. Inside that client area the app paints its own
@@ -47,6 +47,19 @@ vanishing; only the five newest reports are kept. `Diagnostics` names that folde
 adds a `Crash reports: «path»` line to the copied summary, because a beta report without a path a
 tester can paste is not actionable. Everything else on every screen is unchanged from 3.3.
 
+3.5 adds four read-only helpers around the file and the folder the app already builds. The Build
+view gains a `Folder checks` card: `Run checks` verifies required files and every path in
+`config.plist`, `Verify manifest` compares the folder with the manifest written at build time, and
+`Save report…` exports either result as text. The Configure editor gains `Undo`, `Redo` and
+`Changes…` in the `Keys` toolbar; history is snapshot-based, bounded at 100 edits, and never writes
+the file, while `Changes since the file was opened` lists every edit with its before and after
+values. The `Validation` card now shows ocvalidate's lines as a clickable list: choosing one selects
+the key it names, and the app's own explanation appears in the note without replacing or recounting
+the validator's line. `Help` adds `Save diagnostic bundle…`: the dialog previews the exact scrubbed
+text, defaults `Report.json` to off, and writes a local `.txt` or `.zip` that the user attaches
+themselves. Every one of these surfaces is read-only, local and explicit; none writes an EFI
+partition, mounts a disk, uploads anything or claims that a clean result proves a boot.
+
 Inside the client area the material is glass on a lit blue canvas: a frosted 200 px sidebar,
 translucent cards with a 1 px lighter top edge, fields a step below them, a blue gradient primary
 button and progress fill, and a dark console in both themes. The structure below — eight views,
@@ -74,6 +87,8 @@ exact component states rather than adjectives.
    - `docs/screenshots/07-fatal-gpu.png` · `08-settings.png`
    - `docs/screenshots/09-help.png` · `10-donate.png`
    - `docs/screenshots/11-installer.png` · `12-configure.png`
+   - `docs/screenshots/13-build-folder-checks.png` · `14-configure-history.png`
+   - `docs/screenshots/15-diagnostics-bundle.png`
 2. Paste this whole file as context.
 3. Ask for one screen at a time, naming the section *and* the view, e.g.
    *"Render screen S4 (Fatal incompatibility card) on the Compatibility view at 1440×940, light
@@ -367,8 +382,11 @@ the sidebar a `sidebarFill` gradient, over the silk.
 | S22 | Installer written (drive named, eject advice) | Installer | built |
 | S23 | Configure EFI with no built config | Configure EFI | built |
 | S24 | Configure EFI ready: a config.plist open in the editor | Configure EFI | built |
+| S25 | Build EFI folder checks: required files and config paths verified | Build EFI | built |
+| S26 | Configure EFI history: unsaved edits, Changes… dialog open | Configure EFI | built |
+| S27 | Help: diagnostic bundle preview and save | Help | built |
 
-Only S1–S11, S14, S16–S24 may be presented as current product. S12, S13 and S15 must
+Only S1–S11, S14, S16–S27 may be presented as current product. S12, S13 and S15 must
 be labelled *concept*. S14 and S16 follow host capability, not a platform guess: `Collect hardware`
 is drawn on Linux and Windows, `Read ACPI tables` on Linux only, and each is absent rather than
 disabled where its capability is missing. A macOS frame shows neither; a Windows frame shows Collect
@@ -647,6 +665,37 @@ brackets names itself instead of formatting the window. When the ring buffer dro
 gets `<n> earlier log lines were dropped` as a warning. `Save log…` writes `[HH:MM:SS] [level]
 message` lines to the chosen file.
 
+### 7.10 Folder checks
+
+Below `Engine log` on the Build view, a full-width `Folder checks` card whose hint is `Read the
+built folder before you try to boot it.` The header carries three outline buttons: `Run checks`
+(tooltip `Check required files and every path config.plist references`), `Verify manifest`
+(tooltip `Compare the folder with the manifest written at build time`) and `Save report…`, which
+stays disabled until a check has produced a report. The card reads `Not checked yet.` at rest over
+the boundary sentence `These checks read the folder. They do not test firmware, hardware or
+whether macOS boots.`
+
+`Run checks` analyses the built folder without writing anything: every `ACPI/Add`, `Kernel/Add`,
+`UEFI/Drivers` and `Misc/Tools` entry in `config.plist` must point at a file that exists inside the
+folder. The first line reports `No issues detected by these checks.` or `«n» errors, «n» warnings`.
+Findings appear in a list capped at 112 px, one per row as `[ERROR] «where» · «message»` or
+`[WARN] «where» · «message»`; the tooltip carries `Evidence: «evidence»` and `Next: «action»`.
+The note under the status names how many files were read and repeats that the checks do not test
+firmware, hardware or whether macOS boots. An empty severity list collapses the list entirely.
+
+`Verify manifest` compares the folder with the `.blackdream-manifest.json` written beside it at
+build time. The status reads `Every file matches the recorded manifest.` or
+`«n» missing, «n» changed, «n» added`, and each difference is one row, `[MISSING]`, `[CHANGED]` or
+`[ADDED]` followed by the relative path. The note says a match proves these files are the ones
+recorded at build time and does not prove the folder boots. With no build folder the card says
+`No EFI folder to check.` over `Build an EFI folder, or choose one on the Installer page.`; with no
+manifest it says `There is no manifest to verify.`
+
+`Save report…` writes the last report as plain text, never a screenshot, and the status bar says
+`Report saved to «path»`. Every check also writes one log line, `Folder checks: «summary»` or
+`Manifest: «summary»`. A clean result is a statement about files, never about booting; the card
+never claims the folder will boot.
+
 ---
 
 ## 8. S4 · Fatal incompatibility, and the rejected-report reset
@@ -774,14 +823,14 @@ this table.
 | Page headings | `Make a macOS Installer` · `Hardware Compatibility` · `Build EFI Folder` · `Engine Log` · `Configure EFI` · `Settings` · `Help` · `Support BlackDream`, with the subtitles in §16 |
 | Search | placeholder `Search devices…`; keycap `Ctrl K` / `⌘ K`; lives in the `Detected devices` header and is shown only on `Compatibility` |
 | Theme control | `Settings > Appearance` combo `System` · `Light` · `Dark`; no theme button in the header |
-| Card titles | `macOS installer` · `USB drive` · `macOS version` · `Detected devices` · `Device details` · `Build progress` · `Engine log` · `config.plist` · `Sections` · `Keys` · `Selected entry` · `Validation` · `Appearance` · `About` · `Storage` · `Downloads and safety` · `Quick start` · `Keyboard shortcuts` · `Troubleshooting` · `Diagnostics` · `Support the project` · `Test on real hardware` · `Send a compatibility report` · `Share the app` · `Funding`; the setup and actions cards are untitled |
+| Card titles | `macOS installer` · `USB drive` · `macOS version` · `Detected devices` · `Device details` · `Build progress` · `Engine log` · `Folder checks` · `config.plist` · `Sections` · `Keys` · `Selected entry` · `Validation` · `Appearance` · `About` · `Storage` · `Downloads and safety` · `Quick start` · `Keyboard shortcuts` · `Troubleshooting` · `Diagnostics` · `Support the project` · `Test on real hardware` · `Send a compatibility report` · `Share the app` · `Funding`; the setup and actions cards are untitled |
 | Card hints | §16 `card_hints` — the devices hint changes with state; `Appearance`, `Storage` and `Quick start` carry fixed hints |
 | Empty notes | `Load a report to see this machine's devices and what macOS does with them.` · `The engine rejected this report before grading any device.` |
 | Field labels | `Hardware report (Report.json)` · `ACPI tables folder` · `Output folder` · `EFI folder` |
 | Field button | `Browse…` |
 | Link buttons | `Collect hardware` · `Read ACPI tables` · `View details` · `Hide details` · `Copy details` · `Show engine verdict` |
 | Link tooltips | `Scan this machine and write a Report.json` · `Scan this machine with Hardware Sniffer; downloads and runs the verified tool` · `Read the firmware tables from this machine; asks for administrator rights` |
-| Buttons | `Check compatibility` · `Build EFI folder` · `Cancel` · `Open EFI folder` · `Save log…` · `Download installer` · `Download again` · `Refresh` · `Write installer` · `Save` · `Validate` · `Validate again` · `Generate serials` · `Open config…` · `Revert` · `Show folder` · `Add key` · `Add item` · `Remove` · `Up` · `Down` · `Apply` · `Edit…` |
+| Buttons | `Check compatibility` · `Build EFI folder` · `Cancel` · `Open EFI folder` · `Save log…` · `Run checks` · `Verify manifest` · `Save report…` · `Download installer` · `Download again` · `Refresh` · `Write installer` · `Save` · `Validate` · `Validate again` · `Generate serials` · `Open config…` · `Undo` · `Redo` · `Changes…` · `Revert` · `Show folder` · `Add key` · `Add item` · `Remove` · `Up` · `Down` · `Apply` · `Edit…` · `Copy environment info` · `Save diagnostic bundle…` |
 | Table headers | `Device` · `Class` · `macOS support` · `Status` — exactly four columns |
 | Class labels | `CPU` `GPU` `Audio` `Ethernet` `Wi-Fi` `Storage` `USB` `Bluetooth` `SD card` `Display` `Biometric` |
 | Status words | `Supported` · `Limited support` · `Not supported` · `Not graded` |
@@ -796,11 +845,11 @@ this table.
 | Log tools | `Copy the log` · `Save log…` |
 | Error card | `code: <code>` · `This machine cannot run macOS as configured.` (italic suffix, only the two unrecoverable fatals) |
 | Settings view | `Theme` · `Light` · `Dark` · `Artifact cache` · `Runtime tools` · `BlackDream <version>` · `MIT` / `BSD-3-Clause` about copy · `Pinned SHA-256` · `Folder only` · `No account` |
-| Help view | quick-start titles and bodies · shortcut actions · `Troubleshooting` copy · `Copy environment info` · `Nothing has been copied.` · `Copied to the clipboard.` |
+| Help view | quick-start titles and bodies · shortcut actions · `Troubleshooting` copy · `Copy environment info` · `Save diagnostic bundle…` · `Nothing has been copied or saved.` · `Copied to the clipboard.` |
 | Donate view | `Support the project` summary · `Test on real hardware` · `Send a compatibility report` · `Share the app` · `Funding` · `Donation links are not open yet.` |
 | Installer view | `Choose a macOS version` · `macOS <name> <version>` / `macOS Tahoe 26 · latest` · `Not downloaded yet.` · `About 1 GB. A dropped connection resumes where it stopped.` · `Verified · <size>` · `Download installer` / `Download again` · `Write installer` · `Refresh` · USB placeholder and notes in §16 |
-| Configure EFI view | Header chips `Not validated` · `Valid` · `Checking…` · `«n» issue(s)` · `OpenCore «version»`; file card status `No built config.plist yet.` · `config.plist is open` · `Unsaved changes` · `Changed on disk.` · `Changed on disk; unsaved edits here.` · `The config.plist could not be read.`; header buttons `Open config…` · `Validate` · `Save`; card buttons `Generate serials` · `Revert` · `Show folder`; rail `Sections` · `All keys`; key search `Search keys…`; tree headers `Key` · `Value` · `Type`; inspector `Nothing selected` · `Select a key to inspect it.` · `No config.plist is open.` · `On` · `Apply` · `Edit…`; validation `Not checked yet.` · `Checking…` · `Valid` · `«n» issue(s)`; the toolbar, notes and dialog copy are in §15 and §16 |
-| Dialogs | `Engine verdict`, `Write installer?` / `Installer written`, and the editor's own: `Remove from config.plist?`, `Overwrite config.plist?`, `Edit data` / `Edit text`, `Add a key`, `Generate SMBIOS serials`, `Replace SMBIOS values?`. Validation is inline on the page, never a dialog. Settings and About are views in 2.1 |
+| Configure EFI view | Header chips `Not validated` · `Valid` · `Checking…` · `«n» issue(s)` · `OpenCore «version»`; file card status `No built config.plist yet.` · `config.plist is open` · `Unsaved changes` · `Changed on disk.` · `Changed on disk; unsaved edits here.` · `The config.plist could not be read.`; header buttons `Open config…` · `Validate` · `Save`; card buttons `Undo` · `Redo` · `Changes…` · `Generate serials` · `Revert` · `Show folder`; rail `Sections` · `All keys`; key search `Search keys…`; tree headers `Key` · `Value` · `Type`; inspector `Nothing selected` · `Select a key to inspect it.` · `No config.plist is open.` · `On` · `Apply` · `Edit…`; validation `Not checked yet.` · `Checking…` · `Valid` · `«n» issue(s)` and a clickable issue list that says `Select an issue to go to the key it names.`; the toolbar, notes and dialog copy are in §15 and §16 |
+| Dialogs | `Engine verdict`, `Write installer?` / `Installer written`, `Changes since the file was opened`, `Save a diagnostic bundle`, and the editor's own: `Remove from config.plist?`, `Overwrite config.plist?`, `Edit data` / `Edit text`, `Add a key`, `Generate SMBIOS serials`, `Replace SMBIOS values?`. Validation is inline on the page, never a dialog. Settings and About are views in 2.1 |
 
 `<step>` is either a §16.2 engine stage name or a §16 job name — never a string invented to fit the
 width of a bar.
@@ -1115,8 +1164,15 @@ result. Nothing on this page leaves the window, mounts a disk or writes the file
 - **`Keys` card** (stretch). Title `Keys`; hint `Select a value to edit it. Keys this build does
   not know are kept as they are.` The card header holds the 150–190 px `Search keys…` field
   with its clear button and, to its right, the 30 px outline `Presets…` button. Below it a
-  toolbar of 30 px outline buttons: `Add key`, `Add item`,
-  `Remove`, `Up`, `Down`. Then the tree, headers `Key` · `Value` · `Type`, three columns (Key
+  toolbar of 30 px outline buttons: `Undo`, `Redo`, `Changes…`, `Add key`, `Add item`,
+  `Remove`, `Up`, `Down`. `Undo` and `Redo` carry the edit they will reverse or repeat in their
+  tooltip and are disabled when the matching stack is empty. `Changes…` reads
+  `Changes («n»)…` while the document differs from the file that was opened, and opens
+  `Changes since the file was opened`: a read-only tree with headers `Change` · `Key` · `Before` ·
+  `After`, plus `Copy` and `Save as text…`. With no edits it shows one disabled `None` row reading
+  `No edits since the file was opened.` The history keeps the 100 newest snapshots, a save makes
+  the saved bytes the new baseline, and undo/redo never re-reads or writes the file. Then the tree,
+  headers `Key` · `Value` · `Type`, three columns (Key
   and Value stretch, Type fixed at 88 px), 16 px indentation, inline editing and a checkbox for
   booleans. A footer line names the selection, e.g. `Kernel > Add  ·  array  ·  15 items`, or
   reads `Select a key to edit it.`; with no file it reads `No config.plist is open.` The tree
@@ -1144,14 +1200,18 @@ result. Nothing on this page leaves the window, mounts a disk or writes the file
   `No config.plist is open.`
 - **`Validation` card** (full width). Title `Validation`; the card header carries the 28 px
   outline `Validate again`. One row: an 18 px state icon, a 13 px status and a muted note. When
-  `ocvalidate` reports issues they appear below in a read-only monospace box capped at 54 px.
-  States: `Not checked yet.` / `Run Validate to check the in-memory config with ocvalidate.` /
-  chip `Not validated`; `Checking…` / `ocvalidate is checking the in-memory config.` / chip
-  `Checking…`; `No issues found.` / `Checked in memory; the copy on disk is unchanged.` / chip
-  `Valid`; `«n» issues found.` / the same note / chip `«n» issues`, with each `OCS:`/`OCV:` line
-  in the box. Any edit, add, remove, move, serial write or revert bumps the document revision,
-  so a verdict for the previous document disappears and the card returns to `Not checked yet.` —
-  a stale pass is never shown.
+  `ocvalidate` reports issues they appear below in a clickable monospace list capped at 76 px, one
+  row per line exactly as ocvalidate wrote it, with the note `Select an issue to go to the key it
+  names.` Selecting a row that names a key selects that key in the tree and appends
+  `jumped to «path»` to the note; a line that names no single key stays selectable and explains
+  that it is shown as written. States: `Not checked yet.` / `Run Validate to check the in-memory
+  config with ocvalidate.` / chip `Not validated`; `Checking…` / `ocvalidate is checking the
+  in-memory config.` / chip `Checking…`; `No issues found.` / `Checked in memory; the copy on disk
+  is unchanged.` / chip `Valid`; `«n» issues found.` / the same note / chip `«n» issues`, with each
+  `OCS:`/`OCV:` line in the list. Any edit, add, remove, move, serial write or revert bumps the
+  document revision, so a verdict for the previous document disappears and the card returns to
+  `Not checked yet.` — a stale pass is never shown. The app's own explanations never replace the
+  validator's line and are never counted as validator errors.
 - Validation runs `ocvalidate` on a temporary copy of the in-memory document. It never writes
   the file, and a pass does not imply the file on disk is saved; the note says so.
 - `Save` writes atomically, keeps the previous bytes as `config.plist.bak`, and logs
@@ -1214,10 +1274,16 @@ action and keycap: `Search devices`, `Open a report`, `Installer`, `Build EFI`, 
 `Compatibility`, `Build`, `Logs`, `Settings`, `Help`, `Quit`.
 The keycap uses `Ctrl` (`⌘` on macOS) and `F1` for Help. `Troubleshooting` is four icon rows about
 the red card, a refused ACPI read, a rejected report and saving the log. `Diagnostics` explains that
-the copied summary contains the app version, platform, theme, cache paths, the crash-report folder
-and last error code, and no report contents; its `Copy environment info` button writes that text to
-the clipboard and its
-muted note changes from `Nothing has been copied.` to `Copied to the clipboard.`. No external links.
+the copied summary and the bundle contain the app version, platform, theme, the session log, the
+crash report and the last validation result, that nothing is uploaded, and that serial, MLB, UUID
+and ROM values are redacted. Its `Copy environment info` button writes the scrubbed summary to the
+clipboard, its `Save diagnostic bundle…` button opens `Save a diagnostic bundle`, and the muted note
+changes from `Nothing has been copied or saved.` to `Copied to the clipboard.` or
+`Saved to «path». Nothing was uploaded.` The bundle dialog lists one checkable row per entry —
+`environment.txt`, `engine.log`, the newest crash report, `validation.txt`, `preflight.txt`,
+`report-summary.txt` (key names only) and `Report.json`, the last two unchecked by default — over a
+monospace preview of the exact text that will be written, and `Save bundle…` writes a `.txt` or
+`.zip`. `Report.json` is included only when the user ticks it. No external links.
 
 **S19 Donate.** A full view. `Support the project` runs full width: `BlackDream is free and MIT
 licensed. It has no account, no telemetry and no ads.` Below it is a 2 × 2 grid of cards, each with
@@ -1377,6 +1443,7 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "Device details",
     "Build progress",
     "Engine log",
+    "Folder checks",
     "config.plist",
     "Sections",
     "Keys",
@@ -1403,6 +1470,7 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "Step, transfer and timing from the engine.",
     "Building your OpenCore EFI folder.",
     "The EFI folder is ready.",
+    "Read the built folder before you try to boot it.",
     "Follows the system by default. Changes apply immediately.",
     "Where downloads and the tools that read firmware live.",
     "Six steps across the three sections in the sidebar.",
@@ -1469,6 +1537,9 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "Cancel",
     "Open EFI folder",
     "Save log…",
+    "Run checks",
+    "Verify manifest",
+    "Save report…",
     "Download installer",
     "Download again",
     "Refresh",
@@ -1478,6 +1549,9 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "Validate again",
     "Generate serials",
     "Open config…",
+    "Undo",
+    "Redo",
+    "Changes…",
     "Revert",
     "Show folder",
     "Add key",
@@ -1487,13 +1561,42 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "Up",
     "Down",
     "Apply",
-    "Edit…"
+    "Edit…",
+    "Copy environment info",
+    "Save diagnostic bundle…"
   ],
   "log_filter": [
     "Info and above",
     "Warnings and above",
     "Everything"
   ],
+  "folder_checks": {
+    "title": "Folder checks",
+    "hint": "Read the built folder before you try to boot it.",
+    "buttons": [
+      "Run checks",
+      "Verify manifest",
+      "Save report…"
+    ],
+    "tooltips": [
+      "Check required files and every path config.plist references",
+      "Compare the folder with the manifest written at build time"
+    ],
+    "idle": "Not checked yet.",
+    "boundary": "These checks read the folder. They do not test firmware, hardware or whether macOS boots.",
+    "no_folder": "No EFI folder to check.",
+    "no_folder_note": "Build an EFI folder, or choose one on the Installer page.",
+    "unreadable": "This folder cannot be read.",
+    "no_manifest": "There is no manifest to verify.",
+    "clean": "No issues detected by these checks.",
+    "counts": "«n» error«s», «n» warning«s»",
+    "files_note": "Read «n» file«s». These checks do not test firmware, hardware or whether macOS boots.",
+    "manifest_match": "Every file matches the recorded manifest.",
+    "manifest_counts": "«n» missing, «n» changed, «n» added",
+    "manifest_note": "A match proves these files are the ones recorded at build time. It does not prove the folder boots.",
+    "save_title": "Save the folder report",
+    "saved": "Report saved to «path»"
+  },
   "file_dialogs": {
     "report": {
       "caption": "Hardware report",
@@ -2155,6 +2258,9 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
         "Type"
       ],
       "toolbar": [
+        "Undo",
+        "Redo",
+        "Changes…",
         "Add key",
         "Add item",
         "Remove",
@@ -2191,7 +2297,32 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
       "issues": [
         "«n» issue found.",
         "«n» issues found."
-      ]
+      ],
+      "issue_hint": "Select an issue to go to the key it names.",
+      "issue_named": "«message»  ·  jumped to «path»",
+      "issue_unnamed": "This line does not name one key. It is shown as ocvalidate wrote it.",
+      "issue_tooltip": "Go to «path»"
+    },
+    "history": {
+      "undo": "Undo",
+      "redo": "Redo",
+      "changes": "Changes…",
+      "changes_count": "Changes («n»)…",
+      "undo_tooltip": "Undo the last edit in memory",
+      "redo_tooltip": "Redo the last undone edit",
+      "changes_tooltip": "Review every edit made since the file was opened",
+      "dialog_title": "Changes since the file was opened",
+      "hint": "These edits live in memory. Nothing is written until you press Save, and config.plist.bak is kept when you do.",
+      "headers": [
+        "Change",
+        "Key",
+        "Before",
+        "After"
+      ],
+      "empty": "No edits since the file was opened.",
+      "copy": "Copy",
+      "save": "Save as text…",
+      "saved": "Saved to «path». Nothing was written into the config."
     },
     "transfer": [
       "Downloading ocvalidate · «done» of «total»",
@@ -2452,7 +2583,7 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
       }
     ],
     "diagnostics": {
-      "body": "Copy a short summary for a bug report: app version, platform, theme, cache paths, the crash-report folder and the last error code. No report contents are included.",
+      "body": "Copy a short summary for a bug report, or build a bundle you can read before you send it: app version, platform, theme, the session log, the crash report and the last validation result. Nothing is uploaded, and serial, MLB, UUID and ROM values are redacted.",
       "lines": [
         "BlackDream «version»",
         "Platform: «system platform»",
@@ -2463,8 +2594,29 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
         "Last error: «error code or none»"
       ],
       "button": "Copy environment info",
-      "idle": "Nothing has been copied.",
-      "copied": "Copied to the clipboard."
+      "idle": "Nothing has been copied or saved.",
+      "copied": "Copied to the clipboard.",
+      "bundle_button": "Save diagnostic bundle…",
+      "bundle": {
+        "title": "Save a diagnostic bundle",
+        "heading": "Choose what to include",
+        "hint": "Nothing is uploaded. The bundle is written to the folder you pick, and you attach it yourself. Serial, MLB, UUID and ROM values are replaced with <redacted>, and your home folder is shortened to ~.",
+        "preview": "The text that will be written",
+        "save": "Save bundle…",
+        "save_title": "Save the diagnostic bundle",
+        "filter": "Zip archive (*.zip);;Text file (*.txt)",
+        "failed": "The bundle could not be written",
+        "saved": "Saved to «path». Nothing was uploaded.",
+        "entries": [
+          "version, platform, theme and the last error code",
+          "this session's log",
+          "the newest crash report",
+          "the last ocvalidate result",
+          "the last folder check",
+          "the Report.json key names, not its values",
+          "contains hardware details; off unless you choose it"
+        ]
+      }
     }
   },
   "donate": {

@@ -56,11 +56,16 @@ from ocengine import paths
 from ocengine import runtime
 from ocengine.fatal import EngineError
 
-from blackdream import RELEASE_LABEL, hardware
+from blackdream import RELEASE_LABEL, __version__, hardware
+from blackdream.core import config_diff
 from blackdream.core import config_editor
 from blackdream.core import config_presets
 from blackdream.core import crash_log
+from blackdream.core import diagnostics
+from blackdream.core import efi_manifest
+from blackdream.core import efi_preflight
 from blackdream.core import installer as installer_core
+from blackdream.core import validation_assistant
 from blackdream.core import verdicts
 from blackdream.core.job_runner import (
     CANCELLED, DONE, Job, JobRunner, Outcome, UnexpectedEngineFailure)
@@ -441,6 +446,8 @@ class MainWindow(QMainWindow):
         self._config_validation = None
         self._config_inspector_loading = False
         self._built_config: Path | None = None
+        self._config_history: config_diff.History | None = None
+        self._preflight: efi_preflight.Report | None = None
         self._theme_mode = self._stored_theme_mode()
         self._dark = (self._system_dark() if self._theme_mode == "system"
                       else self._theme_mode == "dark")
@@ -887,6 +894,50 @@ class MainWindow(QMainWindow):
         actions.setColumnStretch(1, 1)
         self.actions_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
+        self.preflight_card = _Card(
+            "Folder checks",
+            "Read the built folder before you try to boot it.")
+        preflight_actions = QWidget()
+        preflight_actions_layout = QHBoxLayout(preflight_actions)
+        preflight_actions_layout.setContentsMargins(0, 0, 0, 0)
+        preflight_actions_layout.setSpacing(6)
+        self.preflight_button = QPushButton("Run checks")
+        self.preflight_button.setObjectName("outline")
+        self.preflight_button.setMinimumHeight(28)
+        self.preflight_button.setToolTip(
+            "Check required files and every path config.plist references")
+        self.preflight_button.clicked.connect(lambda: self._on_preflight())
+        self.preflight_verify = QPushButton("Verify manifest")
+        self.preflight_verify.setObjectName("outline")
+        self.preflight_verify.setMinimumHeight(28)
+        self.preflight_verify.setToolTip(
+            "Compare the folder with the manifest written at build time")
+        self.preflight_verify.clicked.connect(self._on_verify_manifest)
+        self.preflight_export = QPushButton("Save report\u2026")
+        self.preflight_export.setObjectName("outline")
+        self.preflight_export.setMinimumHeight(28)
+        self.preflight_export.setEnabled(False)
+        self.preflight_export.clicked.connect(self._on_preflight_export)
+        for button in (self.preflight_button, self.preflight_verify,
+                       self.preflight_export):
+            preflight_actions_layout.addWidget(button)
+        self.preflight_card.set_header_widget(preflight_actions)
+        self.preflight_status = QLabel("Not checked yet.")
+        self.preflight_status.setObjectName("rowTitle")
+        self.preflight_card.add(self.preflight_status)
+        self.preflight_note = QLabel(
+            "These checks read the folder. They do not test firmware, hardware "
+            "or whether macOS boots.")
+        self.preflight_note.setObjectName("rowBody")
+        self.preflight_note.setWordWrap(True)
+        self.preflight_card.add(self.preflight_note)
+        self.preflight_list = QListWidget()
+        self.preflight_list.setObjectName("configIssues")
+        self.preflight_list.setMaximumHeight(112)
+        self.preflight_list.setVisible(False)
+        self.preflight_card.add(self.preflight_list)
+        self._preflight_text = ""
+
         self.devices_card = _Card(
             "Detected devices", "No report loaded yet.")
         self.search = _SearchPill(self._palette_or_light(), compact=True)
@@ -1324,6 +1375,22 @@ class MainWindow(QMainWindow):
             "as they are.")
         toolbar = QHBoxLayout()
         toolbar.setSpacing(6)
+        self.config_undo = QPushButton("Undo")
+        self.config_undo.setObjectName("outline")
+        self.config_undo.setMinimumHeight(30)
+        self.config_undo.setToolTip("Undo the last edit in memory")
+        self.config_undo.clicked.connect(self._on_config_undo)
+        self.config_redo = QPushButton("Redo")
+        self.config_redo.setObjectName("outline")
+        self.config_redo.setMinimumHeight(30)
+        self.config_redo.setToolTip("Redo the last undone edit")
+        self.config_redo.clicked.connect(self._on_config_redo)
+        self.config_changes = QPushButton("Changes\u2026")
+        self.config_changes.setObjectName("outline")
+        self.config_changes.setMinimumHeight(30)
+        self.config_changes.setToolTip(
+            "Review every edit made since the file was opened")
+        self.config_changes.clicked.connect(self._on_config_changes)
         self.config_add_key = QPushButton("Add key")
         self.config_add_key.setObjectName("outline")
         self.config_add_key.setMinimumHeight(30)
@@ -1344,7 +1411,8 @@ class MainWindow(QMainWindow):
         self.config_down.setObjectName("outline")
         self.config_down.setMinimumHeight(30)
         self.config_down.clicked.connect(lambda: self._move_config_item(1))
-        for button in (self.config_add_key, self.config_add_item,
+        for button in (self.config_undo, self.config_redo, self.config_changes,
+                       self.config_add_key, self.config_add_item,
                        self.config_remove, self.config_up, self.config_down):
             toolbar.addWidget(button)
         toolbar.addStretch(1)
@@ -1477,15 +1545,20 @@ class MainWindow(QMainWindow):
         validation_row.addWidget(self.config_validation_status, 0, Qt.AlignTop)
         validation_row.addWidget(self.config_validation_note, 1)
         self.validation_card.add(validation_row)
-        self.config_issues = QPlainTextEdit()
+        self.config_issues = QListWidget()
         self.config_issues.setObjectName("configIssues")
-        self.config_issues.setReadOnly(True)
-        self.config_issues.setMaximumHeight(54)
-        issues_font = QFont("monospace")
-        issues_font.setStyleHint(QFont.StyleHint.Monospace)
-        self.config_issues.setFont(issues_font)
+        self.config_issues.setMaximumHeight(76)
         self.config_issues.setVisible(False)
+        self.config_issues.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.config_issues.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.config_issues.currentItemChanged.connect(
+            self._on_config_issue_selected)
         self.validation_card.add(self.config_issues)
+        self.config_issue_note = QLabel()
+        self.config_issue_note.setObjectName("rowBody")
+        self.config_issue_note.setWordWrap(True)
+        self.config_issue_note.setVisible(False)
+        self.validation_card.add(self.config_issue_note)
         layout.addWidget(self.validation_card)
 
         self._rebuild_config_tree()
@@ -1699,19 +1772,24 @@ class MainWindow(QMainWindow):
 
         self.diagnostics_card = _Card("Diagnostics")
         diagnostics = QLabel(
-            "Copy a short summary for a bug report: app version, platform, theme, "
-            "cache paths, the crash-report folder and the last error code. No report "
-            "contents are included.")
+            "Copy a short summary for a bug report, or build a bundle you can "
+            "read before you send it: app version, platform, theme, the session "
+            "log, the crash report and the last validation result. Nothing is "
+            "uploaded, and serial, MLB, UUID and ROM values are redacted.")
         diagnostics.setObjectName("rowBody")
         diagnostics.setWordWrap(True)
         self.copy_diagnostics_button = QPushButton("Copy environment info")
         self.copy_diagnostics_button.setObjectName("outline")
         self.copy_diagnostics_button.clicked.connect(self._copy_diagnostics)
-        self.diagnostics_note = QLabel("Nothing has been copied.")
+        self.diagnostics_bundle_button = QPushButton("Save diagnostic bundle\u2026")
+        self.diagnostics_bundle_button.setObjectName("outline")
+        self.diagnostics_bundle_button.clicked.connect(self._on_diagnostics_bundle)
+        self.diagnostics_note = QLabel("Nothing has been copied or saved.")
         self.diagnostics_note.setObjectName("dialogMuted")
         self.diagnostics_note.setWordWrap(True)
         diagnostics_row = QHBoxLayout()
         diagnostics_row.setSpacing(10)
+        diagnostics_row.addWidget(self.diagnostics_bundle_button)
         diagnostics_row.addWidget(self.copy_diagnostics_button)
         diagnostics_row.addWidget(self.diagnostics_note, 1)
         self.diagnostics_card.add(diagnostics)
@@ -1930,6 +2008,7 @@ class MainWindow(QMainWindow):
             self._mount(self.actions_card, self._build_actions_layout, 0)
             self._build_actions_layout.setAlignment(self.actions_card, Qt.AlignTop)
             self._mount(self.progress_card, self._build_progress_layout, 0)
+            self._mount(self.preflight_card, self._build_bottom, 0)
             self._mount(self.log_card, self._build_bottom, 1)
         elif name == "Logs":
             self.details_card.setVisible(False)
@@ -2334,6 +2413,138 @@ class MainWindow(QMainWindow):
         self._log_line("info", "Done: {}".format(result))
         self.reveal_button.setEnabled(True)
         self._finish_progress(result)
+        self._write_manifest(result)
+        self._on_preflight(result)
+
+    # ---- folder checks ----
+
+    def _manifest_metadata(self) -> dict:
+        return {
+            "version": __version__,
+            "release_label": RELEASE_LABEL,
+            "macos": str(self.version_combo.currentData() or ""),
+            "smbios_model": str(getattr(self.plan, "smbios_model", "") or ""),
+            "validator": "ocvalidate {}".format(config_editor.OPEN_CORE_VERSION),
+        }
+
+    def _write_manifest(self, folder: Path) -> None:
+        try:
+            path = efi_manifest.write(
+                folder, build=self._manifest_metadata(),
+                validation={"ocvalidate": "not run during build"})
+        except (OSError, efi_manifest.ManifestError) as exc:
+            self._log_line("warning", "The manifest could not be written: {}".format(exc))
+            return
+        self._log_line("info", "Manifest written: {}".format(path.name))
+
+    @staticmethod
+    def _folder_root(folder) -> Path | None:
+        """The folder that contains EFI; accepts the EFI folder itself too."""
+        path = Path(folder)
+        if (path / "EFI" / "OC" / "config.plist").is_file():
+            return path
+        if (path.name.casefold() == "efi"
+                and (path / "OC" / "config.plist").is_file()):
+            return path.parent
+        return None
+
+    def _preflight_root(self) -> Path | None:
+        for folder in (self._efi_folder, self._result_dir):
+            if folder is None:
+                continue
+            root = self._folder_root(folder)
+            if root is not None:
+                return root
+        return None
+
+    def _render_preflight(self, status: str, note: str, rows, text: str) -> None:
+        self.preflight_status.setText(status)
+        self.preflight_note.setText(note)
+        self.preflight_list.clear()
+        for label, tooltip in rows:
+            item = QListWidgetItem(label)
+            item.setToolTip(tooltip)
+            self.preflight_list.addItem(item)
+        self.preflight_list.setVisible(bool(rows))
+        self._preflight_text = text
+        self.preflight_export.setEnabled(bool(text))
+
+    def _on_preflight(self, folder=None) -> None:
+        root = Path(folder) if folder is not None else self._preflight_root()
+        if root is None:
+            self._preflight = None
+            self._render_preflight(
+                "No EFI folder to check.",
+                "Build an EFI folder, or choose one on the Installer page.",
+                (), "")
+            return
+        try:
+            report = efi_preflight.analyse(root)
+        except efi_preflight.PreflightError as exc:
+            self._preflight = None
+            self._render_preflight("This folder cannot be read.", str(exc), (), "")
+            return
+        self._preflight = report
+        rows = [(
+            "[{}] {} \u00b7 {}".format(
+                finding.severity.upper(), finding.where, finding.message),
+            "Evidence: {}\nNext: {}".format(finding.evidence, finding.action),
+        ) for finding in report.findings]
+        self._render_preflight(
+            report.summary,
+            "Read {} file{}. These checks do not test firmware, hardware or "
+            "whether macOS boots.".format(
+                report.files, "" if report.files == 1 else "s"),
+            rows, efi_preflight.to_text(report))
+        self._log_line(
+            "warning" if report.errors else "info",
+            "Folder checks: {}".format(report.summary))
+
+    def _on_verify_manifest(self) -> None:
+        root = self._preflight_root()
+        if root is None:
+            self._render_preflight(
+                "No EFI folder to check.",
+                "Build an EFI folder, or choose one on the Installer page.",
+                (), "")
+            return
+        try:
+            result = efi_manifest.verify(root)
+        except efi_manifest.ManifestError as exc:
+            self._render_preflight(
+                "There is no manifest to verify.",
+                "{} A manifest is written beside the folder after a build.".format(exc),
+                (), "")
+            return
+        rows = [(
+            "[{}] {}".format(item.kind.upper(), item.path),
+            "Recorded: {}\nFound: {}".format(
+                (item.recorded or "nothing")[:16], (item.found or "nothing")[:16]),
+        ) for item in result.differences]
+        self._render_preflight(
+            result.summary,
+            "A match proves these files are the ones recorded at build time. It "
+            "does not prove the folder boots.",
+            rows, efi_manifest.to_text(result))
+        self._log_line(
+            "warning" if result.differences else "info",
+            "Manifest: {}".format(result.summary))
+
+    def _on_preflight_export(self) -> None:
+        if not self._preflight_text:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save the folder report",
+            str(Path.home() / "blackdream-folder-checks.txt"),
+            "Text files (*.txt);;All files (*)")
+        if not path:
+            return
+        try:
+            Path(path).write_text(self._preflight_text, encoding="utf-8")
+        except OSError as exc:
+            self._show_error(EngineError(detail=str(exc)))
+            return
+        self.statusBar().showMessage("Report saved to {}".format(path))
 
     # ---- installer section ----
 
@@ -2629,6 +2840,7 @@ class MainWindow(QMainWindow):
             self._render_config_state()
             return False
         self._config_doc = document
+        self._config_history = config_diff.History(document.data)
         self._config_origin = origin
         self._config_note = ""
         self._config_revision += 1
@@ -2748,28 +2960,27 @@ class MainWindow(QMainWindow):
         # The worker can finish before its queued outcome reaches the GUI; keep
         # the card in "checking" until that outcome actually renders.
         busy = self._config_job == "validate"
+        lines = ()
         if busy:
             status = "Checking\u2026"
             note = "ocvalidate is checking the in-memory config."
             icon, state, chip = "spinner", "muted", "Checking\u2026"
-            issues = ""
         elif not current:
             status = "Not checked yet."
             note = "Run Validate to check the in-memory config with ocvalidate."
             icon, state, chip = "pulse", "muted", "Not validated"
-            issues = ""
         elif result.ok:
             status = result.summary
             note = "Checked in memory; the copy on disk is unchanged."
             icon, state, chip = "check-circle", "ok", "Valid"
-            issues = ""
         else:
             count = len(result.issues)
             status = result.summary
             note = "Checked in memory; the copy on disk is unchanged."
             icon, state = "alert-triangle", "warn"
             chip = "{} issue{}".format(count, "" if count == 1 else "s")
-            issues = "\n".join(result.issues) or result.output
+            lines = result.issues or tuple(
+                line for line in (result.output or "").splitlines() if line.strip())
         self.config_validation_status.setText(status)
         self.config_validation_note.setText(note)
         color = {"ok": palette["ok"], "warn": palette["warn"]}.get(
@@ -2778,9 +2989,48 @@ class MainWindow(QMainWindow):
             self.config_validation_icon.setPixmap(icons.spinner(color, 18, 0))
         else:
             self.config_validation_icon.setPixmap(icons.pixmap(icon, color, 18))
-        self.config_issues.setPlainText(issues)
-        self.config_issues.setVisible(bool(issues))
+        self._render_config_issues(lines)
         self._set_config_chip(self.config_validation_chip, chip, state)
+
+    def _render_config_issues(self, lines) -> None:
+        """One row per validator line, each keeping the message exactly as written."""
+        self.config_issues.clear()
+        self.config_issue_note.setVisible(bool(lines))
+        self.config_issue_note.setText(
+            "Select an issue to go to the key it names." if lines else "")
+        document = self._config_doc
+        if document is None:
+            return
+        for raw in lines:
+            explanation = validation_assistant.explain(raw, document.data)
+            item = QListWidgetItem(raw)
+            item.setData(Qt.UserRole, explanation.path)
+            item.setData(Qt.UserRole + 1, explanation.message)
+            if explanation.path is None:
+                item.setToolTip(
+                    "This line does not name one key. It is shown as ocvalidate "
+                    "wrote it.")
+            else:
+                item.setToolTip("Go to {}".format(
+                    config_diff.path_label(explanation.path)))
+            self.config_issues.addItem(item)
+        self.config_issues.setVisible(bool(lines))
+
+    def _on_config_issue_selected(self, current, _previous=None) -> None:
+        if current is None or self._config_doc is None:
+            return
+        path = current.data(Qt.UserRole)
+        explanation = current.data(Qt.UserRole + 1)
+        if path:
+            self.config_issue_note.setText("{}  \u00b7  jumped to {}".format(
+                explanation or current.text(),
+                config_diff.path_label(path)))
+            self._select_config_path(tuple(path))
+        else:
+            self.config_issue_note.setText(
+                explanation or
+                "This line does not name one key; the message is shown as "
+                "ocvalidate wrote it.")
 
     def _config_selected_path(self) -> tuple | None:
         item = self.config_tree.currentItem()
@@ -2844,6 +3094,22 @@ class MainWindow(QMainWindow):
                 length = 0
         self.config_down.setEnabled(
             ready and movable and position + 1 < length)
+        history = self._config_history
+        self.config_undo.setEnabled(ready and bool(history and history.can_undo))
+        self.config_redo.setEnabled(ready and bool(history and history.can_redo))
+        self.config_changes.setEnabled(ready and history is not None)
+        if history is not None and history.can_undo:
+            self.config_undo.setToolTip("Undo {}".format(history.undo_label))
+        else:
+            self.config_undo.setToolTip("Nothing to undo")
+        if history is not None and history.can_redo:
+            self.config_redo.setToolTip("Redo {}".format(history.redo_label))
+        else:
+            self.config_redo.setToolTip("Nothing to redo")
+        if history is not None:
+            count = len(history.changes())
+            self.config_changes.setText(
+                "Changes ({})\u2026".format(count) if count else "Changes\u2026")
         if path is None:
             self.config_selection.setText(
                 "Select a key to edit it." if document is not None
@@ -3129,7 +3395,8 @@ class MainWindow(QMainWindow):
             return
         if value != current:
             config_editor.set_at(document.data, path, value)
-            self._config_revision += 1
+            self._after_config_edit(
+                "Change {}".format(config_diff.path_label(path)))
             item = self._find_config_path(path)
             if item is not None:
                 self._display_config_item(item, value)
@@ -3149,7 +3416,8 @@ class MainWindow(QMainWindow):
         if not isinstance(current, bool) or current == checked:
             return
         config_editor.set_at(self._config_doc.data, path, checked)
-        self._config_revision += 1
+        self._after_config_edit(
+            "Toggle {}".format(config_diff.path_label(path)))
         item = self._find_config_path(path)
         if item is not None:
             self._display_config_item(item, checked)
@@ -3214,7 +3482,8 @@ class MainWindow(QMainWindow):
             return
         if value != current:
             config_editor.set_at(self._config_doc.data, path, value)
-            self._config_revision += 1
+            self._after_config_edit(
+                "Change {}".format(config_diff.path_label(path)))
             self._config_note = ""
         else:
             self._config_note = ""
@@ -3252,7 +3521,8 @@ class MainWindow(QMainWindow):
             return
         value = dialog.payload()
         config_editor.set_at(self._config_doc.data, path, value)
-        self._config_revision += 1
+        self._after_config_edit(
+            "Edit {}".format(config_diff.path_label(path)))
         item = self._find_config_path(path)
         if item is not None:
             self._display_config_item(item, value)
@@ -3283,7 +3553,7 @@ class MainWindow(QMainWindow):
             self._rebuild_config_tree(outcome.path)
             self._render_config_state()
             return
-        self._config_revision += 1
+        self._after_config_edit("Insert {}".format(preset.title))
         self._config_note = "Inserted {}.".format(preset.title)
         self._rebuild_config_tree(outcome.path)
         self._render_config_state()
@@ -3306,7 +3576,7 @@ class MainWindow(QMainWindow):
             self._config_note = str(exc)
             self._render_config_state()
             return
-        self._config_revision += 1
+        self._after_config_edit("Add {}".format(key))
         self._config_note = "Added {}.".format(key)
         self._rebuild_config_tree(tuple(target) + (key,))
         self._render_config_state()
@@ -3324,7 +3594,8 @@ class MainWindow(QMainWindow):
             template = ""
         config_editor.add_item(sequence, template)
         index = len(sequence) - 1
-        self._config_revision += 1
+        self._after_config_edit("Add item to {}".format(
+            config_diff.path_label(target)))
         self._config_note = "Added item {}.".format(index)
         self._rebuild_config_tree(tuple(target) + (index,))
         self._render_config_state()
@@ -3352,7 +3623,8 @@ class MainWindow(QMainWindow):
             self._config_note = str(exc)
             self._render_config_state()
             return
-        self._config_revision += 1
+        self._after_config_edit("Remove {}".format(
+            config_diff.path_label(path)))
         self._config_note = "Removed {}.".format(_path_label(path))
         self._rebuild_config_tree(tuple(path[:-1]))
         self._render_config_state()
@@ -3368,10 +3640,58 @@ class MainWindow(QMainWindow):
             return
         if moved == path:
             return
-        self._config_revision += 1
+        self._after_config_edit("Move {}".format(
+            config_diff.path_label(moved)))
         self._config_note = "Moved {}.".format(_path_label(moved))
         self._rebuild_config_tree(moved)
         self._render_config_state()
+
+    def _after_config_edit(self, label: str) -> None:
+        """Count the revision and keep a snapshot the user can walk back to."""
+        if self._config_doc is None:
+            return
+        self._config_revision += 1
+        if self._config_history is None:
+            self._config_history = config_diff.History(self._config_doc.data)
+        else:
+            self._config_history.record(self._config_doc.data, label)
+
+    def _on_config_undo(self) -> None:
+        if self._config_history is None or self._config_doc is None:
+            return
+        label = self._config_history.undo_label
+        data = self._config_history.undo()
+        if data is None:
+            return
+        self._apply_config_snapshot(data, "Undid {}".format(label))
+
+    def _on_config_redo(self) -> None:
+        if self._config_history is None or self._config_doc is None:
+            return
+        label = self._config_history.redo_label
+        data = self._config_history.redo()
+        if data is None:
+            return
+        self._apply_config_snapshot(data, "Redid {}".format(label))
+
+    def _apply_config_snapshot(self, data: dict, note: str) -> None:
+        """Replace the in-memory document with a history state; never saves."""
+        if self._config_doc is None:
+            return
+        self._config_doc.data = data
+        self._config_revision += 1
+        self._config_note = note
+        select = self._config_selected_path()
+        self._rebuild_config_tree(select)
+        self._render_config_state()
+
+    def _on_config_changes(self) -> None:
+        if self._config_history is None or self._config_doc is None:
+            return
+        dialog = _ChangesDialog(
+            self, self._config_history.changes(), self._config_doc.path,
+            getattr(self, "_palette", LIGHT))
+        dialog.exec()
 
     def _config_menu(self, position) -> None:
         item = self.config_tree.itemAt(position)
@@ -3432,6 +3752,10 @@ class MainWindow(QMainWindow):
             return
         self._show_error(None)
         self._log_line("info", "Saved {}.".format(document.path))
+        # The disk now holds this state; "changes since opened" starts again
+        # from here, and undo stops at the saved file rather than crossing it.
+        if self._config_history is not None:
+            self._config_history.reset(document.data)
         self._config_note = (
             "Saved. The previous file was kept as config.plist.bak.")
         self._render_config_state()
@@ -3449,6 +3773,7 @@ class MainWindow(QMainWindow):
             return
         self._show_error(None)
         self._config_doc = reloaded
+        self._config_history = config_diff.History(reloaded.data)
         self._config_origin = (
             "built" if document.path == self._built_config else "chosen")
         self._config_revision += 1
@@ -3569,7 +3894,7 @@ class MainWindow(QMainWindow):
             self._show_error(config_editor.ConfigEditorError(detail=str(exc)))
             self._config_note = "The generated values could not be applied."
             return
-        self._config_revision += 1
+        self._after_config_edit("Generate serials for {}".format(model))
         self._config_note = "Generated SMBIOS values for {}.".format(model)
         self._rebuild_config_tree(("PlatformInfo", "Generic"))
 
@@ -4159,18 +4484,72 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(self.log_view.toPlainText())
         self.statusBar().showMessage("Log copied to the clipboard")
 
+    def _environment_text(self) -> str:
+        return diagnostics.environment(
+            RELEASE_LABEL, platform.platform(),
+            theme="Dark" if self._dark else "Light",
+            frozen=bool(getattr(sys, "frozen", False)),
+            architecture=platform.machine()) + "Last error: {}\n".format(
+                self._last_error_code or "none")
+
     def _copy_diagnostics(self) -> None:
-        text = "\n".join((
-            "BlackDream {}".format(RELEASE_LABEL),
-            "Platform: {}".format(platform.platform()),
-            "Theme: {}".format("Dark" if self._dark else "Light"),
-            "Artifact cache: {}".format(paths.current().cache_dir),
-            "Runtime tools: {}".format(paths.current().tools_dir),
-            "Crash reports: {}".format(crash_log.report_dir()),
-            "Last error: {}".format(self._last_error_code or "none"),
-        ))
+        text = diagnostics.Bundle(home=Path.home()).scrub(self._environment_text())
         QApplication.clipboard().setText(text)
         self.diagnostics_note.setText("Copied to the clipboard.")
+
+    def _newest_crash(self) -> Path | None:
+        try:
+            reports = sorted(crash_log.report_dir().glob("crash-*.txt"))
+        except OSError:
+            return None
+        return reports[-1] if reports else None
+
+    def _diagnostic_bundle(self) -> diagnostics.Bundle:
+        document = self._config_doc
+        secrets = (diagnostics.secrets_from_config(document.data)
+                   if document is not None else ())
+        bundle = diagnostics.Bundle(home=Path.home(), secrets=secrets)
+        bundle.add("environment.txt", self._environment_text(), optional=False,
+                   note="version, platform, theme and the last error code")
+        if self._entries:
+            bundle.add("engine.log", "\n".join(
+                "[{}] [{}] {}".format(stamp, level, message)
+                for level, message, stamp in self._entries),
+                note="this session's log")
+        crash = self._newest_crash()
+        if crash is not None:
+            bundle.add("crash-{}.txt".format(crash.stem),
+                       diagnostics.log_text(crash),
+                       note="the newest crash report")
+        if self._config_validation is not None:
+            result = self._config_validation
+            body = "\n".join((result.summary, "", result.output or "")) + "\n"
+            if result.issues:
+                body += "\n".join(result.issues) + "\n"
+            bundle.add("validation.txt", body,
+                       note="the last ocvalidate result")
+        if self._preflight is not None:
+            bundle.add("preflight.txt", efi_preflight.to_text(self._preflight),
+                       note="the last folder check")
+        if self._report_path is not None:
+            bundle.add("report-summary.txt",
+                       diagnostics.report_summary(self._report_path),
+                       note="the Report.json key names, not its values")
+            try:
+                body = self._report_path.read_text(
+                    encoding="utf-8", errors="replace")
+            except OSError:
+                body = "Report.json could not be read."
+            bundle.add("Report.json", body, included=False,
+                       note="contains hardware details; off unless you choose it")
+        return bundle
+
+    def _on_diagnostics_bundle(self) -> None:
+        dialog = _DiagnosticsDialog(
+            self, self._diagnostic_bundle(), getattr(self, "_palette", LIGHT))
+        if dialog.exec() == QDialog.Accepted and dialog.saved_path:
+            self.diagnostics_note.setText(
+                "Saved to {}. Nothing was uploaded.".format(dialog.saved_path))
 
     # ---- error presentation ----
 
@@ -4951,6 +5330,169 @@ class _SerialDialog(QDialog):
 
     def selected_model(self) -> str:
         return self.model_combo.currentText()
+
+
+class _ChangesDialog(QDialog):
+    """Every edit since the file was opened, read-only and exportable."""
+
+    def __init__(self, parent, changes, path, palette: dict) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Changes since the file was opened")
+        self.setMinimumSize(760, 420)
+        self._changes = list(changes)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(10)
+        heading = QLabel(str(path))
+        heading.setObjectName("rowTitle")
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+        hint = QLabel(
+            "These edits live in memory. Nothing is written until you press "
+            "Save, and config.plist.bak is kept when you do.")
+        hint.setObjectName("rowBody")
+        hint.setWordWrap(True)
+        self._hint = hint
+        layout.addWidget(hint)
+        self.tree = QTreeWidget()
+        self.tree.setObjectName("configTree")
+        self.tree.setHeaderLabels(["Change", "Key", "Before", "After"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        header = self.tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.tree.setColumnWidth(0, 92)
+        for change in self._changes:
+            before, after = change.pair
+            self.tree.addTopLevelItem(QTreeWidgetItem([
+                change.kind.capitalize(), change.label, before, after]))
+        if not self._changes:
+            empty = QTreeWidgetItem([
+                "None", "No edits since the file was opened.", "", ""])
+            empty.setFlags(Qt.NoItemFlags)
+            self.tree.addTopLevelItem(empty)
+        layout.addWidget(self.tree, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        copy = buttons.addButton("Copy", QDialogButtonBox.ActionRole)
+        save = buttons.addButton("Save as text\u2026", QDialogButtonBox.ActionRole)
+        copy.setObjectName("outline")
+        save.setObjectName("outline")
+        copy.clicked.connect(self._copy)
+        save.clicked.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(config_diff.to_text(self._changes))
+
+    def _save(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save changes", str(Path.home() / "blackdream-changes.txt"),
+            "Text files (*.txt);;All files (*)")
+        if not path:
+            return
+        try:
+            Path(path).write_text(
+                config_diff.to_text(self._changes), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(self, "The changes could not be saved", str(exc))
+            return
+        self._hint.setText("Saved to {}. Nothing was written into the config.".format(
+            path))
+
+
+class _DiagnosticsDialog(QDialog):
+    """Choose what goes into a diagnostic bundle, then read it before saving."""
+
+    def __init__(self, parent, bundle: diagnostics.Bundle,
+                 palette: dict) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Save a diagnostic bundle")
+        self.setMinimumSize(720, 520)
+        self.bundle = bundle
+        self.saved_path = ""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(10)
+        heading = QLabel("Choose what to include")
+        heading.setObjectName("rowTitle")
+        layout.addWidget(heading)
+        hint = QLabel(
+            "Nothing is uploaded. The bundle is written to the folder you pick, "
+            "and you attach it yourself. Serial, MLB, UUID and ROM values are "
+            "replaced with <redacted>, and your home folder is shortened to ~.")
+        hint.setObjectName("rowBody")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        self.choices = QListWidget()
+        self.choices.setObjectName("configSections")
+        self.choices.setMaximumHeight(150)
+        for entry in bundle.entries:
+            label = entry.name + (" \u00b7 " + entry.note if entry.note else "")
+            item = QListWidgetItem(label)
+            item.setData(Qt.UserRole, entry.name)
+            item.setToolTip(entry.note)
+            if entry.optional:
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked if entry.included else Qt.Unchecked)
+            else:
+                item.setFlags(item.flags() & ~Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)
+            self.choices.addItem(item)
+        self.choices.itemChanged.connect(self._sync)
+        layout.addWidget(self.choices)
+        preview_label = QLabel("The text that will be written")
+        preview_label.setObjectName("rowTitle")
+        layout.addWidget(preview_label)
+        self.preview = QPlainTextEdit()
+        self.preview.setObjectName("configIssues")
+        self.preview.setReadOnly(True)
+        font = QFont("monospace")
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        self.preview.setFont(font)
+        layout.addWidget(self.preview, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        save = buttons.addButton("Save bundle\u2026",
+                                 QDialogButtonBox.AcceptRole)
+        save.setObjectName("primary")
+        buttons.rejected.connect(self.reject)
+        save.clicked.connect(self._save)
+        layout.addWidget(buttons)
+        self._refresh_preview()
+
+    def _sync(self, item) -> None:
+        name = item.data(Qt.UserRole)
+        if name is None:
+            return
+        self.bundle.set_included(name, item.checkState() == Qt.Checked)
+        self._refresh_preview()
+
+    def _refresh_preview(self) -> None:
+        self.preview.setPlainText(self.bundle.render())
+
+    def _save(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save the diagnostic bundle",
+            str(Path.home() / "blackdream-diagnostics.zip"),
+            "Zip archive (*.zip);;Text file (*.txt)")
+        if not path:
+            return
+        try:
+            if path.lower().endswith(".txt"):
+                self.bundle.write_text(path)
+            else:
+                self.bundle.write_zip(path)
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "The bundle could not be written", str(exc))
+            return
+        self.saved_path = path
+        self.accept()
 
 
 def _editable_text(value, kind: str) -> str:

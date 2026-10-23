@@ -596,6 +596,18 @@ QListWidget#configSections::item:selected { background: $selection; }
 QListWidget#configSections::item:disabled { color: $faint; }
 
 QLineEdit#configValueEdit { padding: 5px 8px; font-size: 12px; }
+QListWidget#configIssues {
+    background: $fieldBg; color: $muted;
+    border: 1px solid $fieldBorder; border-radius: 8px;
+    padding: 2px;
+    font-family: "SF Mono", "Menlo", "Cascadia Mono", "Consolas", "DejaVu Sans Mono";
+    font-size: 11px;
+}
+QListWidget#configIssues::item { padding: 3px 6px; border-radius: 5px; }
+QListWidget#configIssues::item:hover { background: $menuHover; }
+QListWidget#configIssues::item:selected {
+    background: $selection; color: $text;
+}
 QPlainTextEdit#configIssues {
     background: $fieldBg; color: $muted;
     border: 1px solid $fieldBorder; border-radius: 8px;

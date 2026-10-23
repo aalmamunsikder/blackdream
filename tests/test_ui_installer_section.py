@@ -16,6 +16,7 @@ import os
 import plistlib
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -963,8 +964,10 @@ def test_validation_issues_stay_visible_on_the_page(
     assert window.config_validation_status.text() == "2 issues found."
     assert window.config_validation_chip.text() == "2 issues"
     assert not window.config_issues.isHidden()
-    assert "No schema for MadeUp" in window.config_issues.toPlainText()
-    assert "Serialisation returns 1 error!" in window.config_issues.toPlainText()
+    shown = [window.config_issues.item(i).text()
+             for i in range(window.config_issues.count())]
+    assert "No schema for MadeUp" in shown[0]
+    assert shown[1] == "Serialisation returns 1 error!"
 
     # A later edit makes the old verdict stale instead of pretending it still
     # describes the document on screen.
@@ -1242,3 +1245,279 @@ def test_the_preset_dialog_groups_entries_and_previews_their_state(make_window):
     dialog.tree.setCurrentItem(find("acpi-osid-xsid"))
     assert dialog.state_label.text() == "Will be inserted enabled."
     dialog.deleteLater()
+
+
+# ---- roadmap: history, validator navigation, folder checks, diagnostics ----
+
+
+def _clean_config():
+    return {
+        "ACPI": {"Add": [], "Quirks": {}},
+        "Booter": {"Quirks": {"ResizeAppleGpuBars": -1}},
+        "Kernel": {"Add": [{"BundlePath": "Lilu.kext", "Enabled": True}]},
+        "PlatformInfo": {"Automatic": True, "Generic": {
+            "SystemProductName": "MacPro7,1",
+            "ROM": b"\x11\x22\x33\x44\x55\x66"}},
+        "UEFI": {"Drivers": [{"Path": "OpenRuntime.efi", "Enabled": True}]},
+    }
+
+
+def _clean_efi_folder(root):
+    efi = _efi_folder(root, _clean_config())
+    (efi / "OC" / "Kexts" / "Lilu.kext").mkdir(parents=True)
+    (efi / "OC" / "Drivers").mkdir()
+    (efi / "OC" / "Drivers" / "OpenRuntime.efi").write_bytes(b"driver")
+    return efi
+
+
+def test_undo_and_redo_walk_snapshots_without_touching_the_file(
+        make_window, qapp, tmp_path):
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+    folder = tmp_path / "build"
+    efi = _efi_folder(folder)
+    window._set_efi_folder(str(folder))
+    original = (efi / "OC" / "config.plist").read_bytes()
+
+    assert not window.config_undo.isEnabled()
+    assert not window.config_redo.isEnabled()
+    assert window.config_changes.text() == "Changes\u2026"
+
+    item = _config_item(window, ("Booter", "Quirks", "ResizeAppleGpuBars"))
+    item.setText(1, "0")
+    qapp.processEvents()
+
+    assert window.config_undo.isEnabled()
+    assert window.config_undo.toolTip().startswith("Undo ")
+    assert window.config_changes.text() == "Changes (1)\u2026"
+
+    window._on_config_undo()
+    qapp.processEvents()
+
+    assert window._config_doc.data["Booter"]["Quirks"][
+        "ResizeAppleGpuBars"] == -1
+    assert (efi / "OC" / "config.plist").read_bytes() == original
+    assert window.config_redo.isEnabled()
+    assert window.config_detail.text().startswith("Undid ")
+
+    window._on_config_redo()
+    qapp.processEvents()
+
+    assert window._config_doc.data["Booter"]["Quirks"][
+        "ResizeAppleGpuBars"] == 0
+    assert window.config_changes.text() == "Changes (1)\u2026"
+    assert (efi / "OC" / "config.plist").read_bytes() == original
+
+
+def test_a_save_makes_the_saved_bytes_the_new_baseline(
+        make_window, qapp, tmp_path):
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+    folder = tmp_path / "build"
+    _efi_folder(folder)
+    window._set_efi_folder(str(folder))
+
+    item = _config_item(window, ("Booter", "Quirks", "ResizeAppleGpuBars"))
+    item.setText(1, "0")
+    qapp.processEvents()
+    window._on_config_save()
+    qapp.processEvents()
+
+    assert window.config_changes.text() == "Changes\u2026"
+    assert not window.config_undo.isEnabled()
+    assert not window.config_redo.isEnabled()
+
+
+def test_the_changes_dialog_lists_each_edit_with_both_values(
+        make_window, qapp, tmp_path):
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+    folder = tmp_path / "build"
+    _efi_folder(folder)
+    window._set_efi_folder(str(folder))
+
+    _config_item(window, ("Booter", "Quirks", "ResizeAppleGpuBars")
+                 ).setText(1, "0")
+    qapp.processEvents()
+    _config_item(window, ("Booter", "Quirks", "AvoidRuntimeDefrag")
+                 ).setCheckState(1, Qt.Unchecked)
+    qapp.processEvents()
+
+    dialog = ui._ChangesDialog(
+        window, window._config_history.changes(), window._config_doc.path,
+        ui.LIGHT)
+
+    assert dialog.windowTitle() == "Changes since the file was opened"
+    rows = [[dialog.tree.topLevelItem(index).text(column)
+             for column in range(4)]
+            for index in range(dialog.tree.topLevelItemCount())]
+    assert ("Changed", "Booter > Quirks > ResizeAppleGpuBars",
+            "-1", "0") in [tuple(row) for row in rows]
+    assert ("Changed", "Booter > Quirks > AvoidRuntimeDefrag",
+            "true", "false") in [tuple(row) for row in rows]
+    dialog.deleteLater()
+
+
+def test_selecting_a_validator_issue_jumps_to_the_key_it_names(
+        make_window, qapp, tmp_path):
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+    folder = tmp_path / "build"
+    _efi_folder(folder)
+    window._set_efi_folder(str(folder))
+
+    window._render_config_issues((
+        "OCS: No schema for ResizeAppleGpuBars at 1 index, context <Quirks>!",
+        "The validator stopped here.",
+    ))
+    qapp.processEvents()
+
+    assert window.config_issue_note.text() == (
+        "Select an issue to go to the key it names.")
+    first = window.config_issues.item(0)
+    assert first.toolTip() == (
+        "Go to Booter > Quirks > ResizeAppleGpuBars")
+
+    window.config_issues.setCurrentRow(0)
+    qapp.processEvents()
+
+    assert window._config_selected_path() == (
+        "Booter", "Quirks", "ResizeAppleGpuBars")
+    assert "jumped to Booter > Quirks > ResizeAppleGpuBars" in (
+        window.config_issue_note.text())
+
+    window.config_issues.setCurrentRow(1)
+    qapp.processEvents()
+    assert "does not name one key" in window.config_issue_note.text()
+
+
+def test_folder_checks_read_the_built_folder_and_never_claim_boot(
+        make_window, qapp, tmp_path):
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+    folder = tmp_path / "build"
+    _clean_efi_folder(folder)
+    window._set_efi_folder(str(folder))
+
+    assert window.preflight_status.text() == "Not checked yet."
+    assert not window.preflight_export.isEnabled()
+
+    window._on_preflight()
+    qapp.processEvents()
+
+    assert window._preflight is not None
+    assert window.preflight_status.text() == (
+        "No issues detected by these checks.")
+    assert "do not test firmware, hardware or whether macOS boots" in (
+        window.preflight_note.text())
+    assert window.preflight_list.isHidden()
+    assert window.preflight_export.isEnabled()
+    assert "does not prove" not in window.preflight_status.text()
+
+    (folder / "EFI" / "OC" / "Kexts" / "Lilu.kext").rmdir()
+    window._on_preflight()
+    qapp.processEvents()
+
+    assert "error" in window.preflight_status.text().lower()
+    assert not window.preflight_list.isHidden()
+    assert "Lilu.kext" in window.preflight_list.item(0).toolTip()
+    assert "Next:" in window.preflight_list.item(0).toolTip()
+
+
+def test_the_manifest_verifies_a_build_and_reports_a_changed_file(
+        make_window, qapp, tmp_path):
+    from blackdream.core import efi_manifest
+
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+    folder = tmp_path / "build"
+    _clean_efi_folder(folder)
+    window._set_efi_folder(str(folder))
+    efi_manifest.write(folder)
+
+    window._on_verify_manifest()
+    qapp.processEvents()
+
+    assert window.preflight_status.text() == (
+        "Every file matches the recorded manifest.")
+    assert "does not prove the folder boots" in (
+        window.preflight_note.text())
+    assert window.preflight_list.isHidden()
+
+    with (folder / "EFI" / "OC" / "OpenCore.efi").open("ab") as handle:
+        handle.write(b"tampered")
+    window._on_verify_manifest()
+    qapp.processEvents()
+
+    assert window.preflight_status.text() == "0 missing, 1 changed, 0 added"
+    assert not window.preflight_list.isHidden()
+    assert "EFI/OC/OpenCore.efi" in window.preflight_list.item(0).text()
+
+
+def test_the_folder_report_is_saved_as_text(
+        make_window, qapp, tmp_path, monkeypatch):
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+    folder = tmp_path / "build"
+    _clean_efi_folder(folder)
+    window._set_efi_folder(str(folder))
+    window._on_preflight()
+
+    target = tmp_path / "checks.txt"
+    monkeypatch.setattr(ui.QFileDialog, "getSaveFileName",
+                        lambda *_args, **_kwargs: (str(target), ""))
+    window._on_preflight_export()
+
+    assert target.read_text(encoding="utf-8") == window._preflight_text
+    assert "Result: No issues detected by these checks." in (
+        target.read_text(encoding="utf-8"))
+
+
+def test_the_diagnostic_bundle_redacts_identity_values_and_defaults_off_report(
+        make_window, qapp, tmp_path, monkeypatch):
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+    folder = tmp_path / "build"
+    _efi_folder(folder)
+    window._set_efi_folder(str(folder))
+    window._ingest("info", "ROM 112233445566 at {}".format(Path.home()))
+
+    report = tmp_path / "Report.json"
+    report.write_text('{"Hardware": {"CPU": [{"Name": "Test"}]}}',
+                      encoding="utf-8")
+    window._report_path = report
+    captured = {}
+
+    class _StubDialog:
+        def __init__(self, parent, bundle, palette):
+            captured["bundle"] = bundle
+            self.saved_path = ""
+
+        def exec(self):
+            return ui.QDialog.Accepted
+
+    monkeypatch.setattr(ui, "_DiagnosticsDialog", _StubDialog)
+    window._on_diagnostics_bundle()
+
+    bundle = captured["bundle"]
+    names = {entry.name: entry for entry in bundle.entries}
+    assert names["environment.txt"].optional is False
+    assert names["Report.json"].included is False
+    assert names["report-summary.txt"].included is True
+    rendered = bundle.render()
+    assert "112233445566" not in rendered
+    assert "<redacted>" in rendered
+    assert "Test" not in names["report-summary.txt"].body
+
+
+def test_the_diagnostics_copy_scrubs_the_home_folder(
+        make_window, qapp, monkeypatch):
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+
+    window._copy_diagnostics()
+
+    assert window.diagnostics_note.text() == "Copied to the clipboard."
+    text = QApplication.clipboard().text()
+    assert "BlackDream" in text
+    assert str(Path.home()) not in text

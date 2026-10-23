@@ -1,12 +1,37 @@
-# BlackDream 0.9.0-beta.1
+# BlackDream 0.9.0-beta.2
 
 Released 2026-10-23 · pre-release · MIT licensed · no account, no telemetry, no ads,
 no update check.
 
-This is the first build distributed outside the development machine. It is a **beta**:
+This is the second build distributed outside the development machine. It is a **beta**:
 it asks for reports, it does not promise coverage. The feature set is frozen at what
-`docs/UI-MOCKUP-SPEC.md` v3.4 marks *built*; anything labelled *concept* or *planned* is
+`docs/UI-MOCKUP-SPEC.md` v3.5 marks *built*; anything labelled *concept* or *planned* is
 not in this binary.
+
+## What is new in beta 2
+
+Beta 2 adds four read-only helpers around the folder and the file the app already
+produces. None of them writes an EFI partition, mounts a disk, uploads anything or
+claims that a clean result proves a boot.
+
+* **Folder checks** on the `Build EFI` view. `Run checks` reads the built folder and
+  verifies the three required files plus every `ACPI`, `Kernel`, `UEFI/Drivers` and
+  `Misc/Tools` path in `config.plist`. `Verify manifest` compares the folder with the
+  `.blackdream-manifest.json` the build wrote beside it, so a moved or edited file is
+  named instead of guessed. `Save report…` exports either result as plain text.
+* **Undo, Redo and Changes…** in the `Configure EFI` key toolbar. History is
+  snapshot-based and bounded at 100 edits, so binary `data`, key order and unknown keys
+  survive a round trip; it never re-reads or writes the file, and `Save` makes the saved
+  bytes the new baseline. `Changes since the file was opened` lists every edit with its
+  before and after values and can copy or save the list.
+* **Actionable validation.** Each `ocvalidate` line is now a row in a clickable list.
+  Choosing one selects the key it names; the app's explanation appears in the note and
+  never replaces or recounts the validator's own line. A line that names no single key
+  stays visible exactly as ocvalidate wrote it.
+* **Privacy-safe diagnostic bundle** in `Help`. `Save diagnostic bundle…` previews the
+  exact text, defaults `Report.json` to off, replaces serial, MLB, UUID and ROM values
+  with `<redacted>`, shortens the home folder to `~`, and writes a local `.txt` or
+  `.zip` that you attach yourself. Nothing is uploaded.
 
 ## What is in this release
 
@@ -27,8 +52,8 @@ Three sections, in the order the workflow runs:
    `config.plist.bak`, and `Revert` back to the bytes on disk.
 
 Plus `Settings` (theme, storage paths, safety statements), `Help` (quick start,
-shortcuts, troubleshooting, `Copy environment info`) and `Donate` (ways to help that do
-not involve money; no payment link exists yet).
+shortcuts, troubleshooting, `Copy environment info`, `Save diagnostic bundle…`) and
+`Donate` (ways to help that do not involve money; no payment link exists yet).
 
 ## Safety behaviour you should know before you test
 
@@ -51,7 +76,7 @@ not involve money; no payment link exists yet).
 
 | Environment | Status |
 | --- | --- |
-| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 644 automated tests |
+| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 752 automated tests |
 | Windows 10/11 | the bundle is built and smoke-tested natively on a Windows runner; **no full workflow run on real hardware** |
 | macOS 14+ on Intel | the `.app` is built and smoke-tested natively on an Intel macOS runner; Apple Silicon runs the same Intel bundle under Rosetta 2; **no full workflow run on real hardware** |
 | CPython 3.11–3.13 | syntax-verified against the 3.11 grammar; **not executed** |
@@ -83,8 +108,12 @@ a number, so the promise in `Info.plist` is one the bundled Qt can keep.
   `README.md`).
 * **Presets are 12 entries**, the ACPI and Kernel patches adapted from OCAT's preset
   library. The library is not fetched and has no update channel.
-* **There is no undo stack** in the config editor. `Revert` reloads the file on disk and
-  discards unsaved edits; that is the only way back.
+* **Undo history lives in memory and is bounded.** It keeps the 100 newest edits, is
+  discarded when the file is reloaded, and `Save` starts a new baseline. `Revert` still
+  reloads the bytes on disk and discards every unsaved edit.
+* **Folder checks read files, not firmware.** A clean report says the referenced files
+  exist and the manifest matches; it does not test this machine's firmware, its hardware
+  or whether macOS boots. A boot test remains the only proof of a boot.
 * **`Show as text` is a view of bytes, not an encoding guess.** Printable ASCII shows as
   text, everything else as `\xNN`. UTF-8 strings are not decoded.
 * No device overrides, no standalone SMBIOS editor, no first-run download wizard, no
@@ -100,7 +129,9 @@ Include, in this order:
 3. what you expected versus what happened, and whether it repeats,
 4. the exact error code shown on the red card, if any,
 5. the engine log saved from `Logs`, and the crash-report file if the app closed,
-6. whether your `Report.json` names your machine before you attach it publicly.
+6. `Help ▸ Save diagnostic bundle…` already redacts identity values and the home folder;
+   read the preview before attaching it,
+7. whether your `Report.json` names your machine before you attach it publicly.
 
 Do not post SMBIOS serial, MLB, UUID or ROM values. There is no form inside the app and
 nothing is uploaded; send the report to whoever gave you this build.
@@ -111,11 +142,11 @@ Every build publishes these files into `dist/release/`:
 
 | Name | What it is |
 | --- | --- |
-| `BlackDream-0.9.0-beta.1-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
-| `blackdream_0.9.0b1_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
-| `blackdream-0.9.0b1-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
-| `blackdream-0.9.0b1-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
-| `blackdream-0.9.0b1.tar.gz` | the source distribution |
+| `BlackDream-0.9.0-beta.2-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
+| `blackdream_0.9.0b2_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
+| `blackdream-0.9.0b2-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
+| `blackdream-0.9.0b2-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
+| `blackdream-0.9.0b2.tar.gz` | the source distribution |
 
 A Linux bundle needs glibc 2.35 or newer. That is not a preference: the build measures
 the versioned symbols inside the shipped Qt and glib libraries and refuses to publish a

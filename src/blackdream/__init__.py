@@ -2,10 +2,10 @@
 
 #: PEP 440 version, the one that goes into package metadata and the window's
 #: version resource. ``RELEASE_LABEL`` is what a human reads.
-__version__ = "0.9.0b1"
+__version__ = "0.9.0b2"
 
 #: What the window, the CLI and the environment report display.
-RELEASE_LABEL = "0.9.0-beta.1"
+RELEASE_LABEL = "0.9.0-beta.2"
 
 #: This build is pre-release: it asks for reports, it does not promise coverage.
 PRERELEASE = True
