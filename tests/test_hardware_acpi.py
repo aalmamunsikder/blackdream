@@ -101,7 +101,8 @@ def test_one_unreadable_table_is_skipped_but_the_dsdt_is_not(source, tmp_path):
         os.chmod(source / "FACP", 0o644)
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="the point is that this is not root")
+@pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() == 0,
+                    reason="the point is that this is not root")
 def test_the_helper_refuses_to_run_unprivileged():
     result = subprocess.run([sys.executable, str(SRC / acpi.HELPER_NAME)],
                             capture_output=True, text=True)

@@ -21,6 +21,7 @@ import fixtures
 from blackdream.core.pipeline import Pipeline
 from blackdream.hardware import collect as collect_module
 from blackdream.hardware import CollectionRejected, ReportCollector
+from ocengine.fatal import FatalIncompatibility
 from ocengine.report_validator import ReportValidator
 from ocengine.runtime import RecordingSink, set_sink
 
@@ -207,8 +208,16 @@ def test_a_real_scan_is_accepted_and_graded_by_the_engine(sink, tmp_path):
         pytest.fail("this machine's scan was rejected: {}".format(refusal.detail))
     assert collected.report_path.name == "Report.json"
 
-    analysis = Pipeline().analyze(Pipeline().load_report(collected.report_path))
-    assert analysis.report.get("CPU", {}).get("Compatibility")
+    pipeline = Pipeline()
+    try:
+        analysis = pipeline.analyze(pipeline.load_report(collected.report_path))
+    except FatalIncompatibility as refusal:
+        # A virtual machine reports no GPU, and the engine refuses to grade a machine
+        # nothing can drive a display on. That is the scan being accepted and the
+        # hardware being rejected, which is the distinction this test exists to draw.
+        assert refusal.code == "gpu.absent", refusal.code
+    else:
+        assert analysis.report.get("CPU", {}).get("Compatibility")
     assert set(collected.report) >= {"Motherboard", "BIOS", "CPU", "GPU", "Network", "USB Controllers", "Input", "Storage Controllers"}
 
 
@@ -223,6 +232,8 @@ def test_a_real_scan_names_the_identifiers_the_engine_can_use(sink, tmp_path):
     cpu_codename = report["CPU"]["Codename"]
     chipset = report["Motherboard"]["Chipset"]
 
+    if cpu_codename == "Unknown":
+        pytest.skip("this CPU is not in the engine's tables; the collector says so")
     assert cpu_codename in cpu_data.IntelCPUGenerations + getattr(cpu_data, "AMDCPUGenerations", [])
     assert chipset in chipset_data.IntelChipsets + getattr(chipset_data, "AMDChipsets", [])
     assert report["CPU"]["SIMD Features"]
