@@ -63,7 +63,13 @@ def system_files(bundle: Path):
     icons = bundle / "share/icons"
     for source in sorted(icons.rglob("*")):
         if source.is_file():
-            files.append((source, "/" + str(source.relative_to(bundle)), 0o644))
+            # The bundle carries the sizes directly under share/icons; a desktop
+            # environment only looks them up inside an icon theme, so the
+            # installed copy goes under hicolor.
+            relative = source.relative_to(icons)
+            if relative.parts[0] != "hicolor":
+                relative = Path("hicolor") / relative
+            files.append((source, "/usr/share/icons/" + relative.as_posix(), 0o644))
     for document in ("LICENSE", "README.md", "THIRD-PARTY.md", "RELEASE-NOTES.md"):
         files.append((bundle / document,
                       "/usr/share/doc/{}/{}".format(APP, document), 0o644))

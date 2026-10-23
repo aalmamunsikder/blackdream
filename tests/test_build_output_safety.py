@@ -77,14 +77,19 @@ def test_prune_keeps_config_references_written_with_forward_slashes(tmp_path, mo
         directory.mkdir(parents=True)
 
     # A Windows listing spells nested paths with backslashes; a literal name on
-    # this filesystem lets the comparison be exercised without Windows.
-    (drivers / "OpenRuntime.efi").write_bytes(b"")
-    (drivers / "Unused.efi").write_bytes(b"")
-    (tools / "memtest86\\BOOTX64.efi").write_bytes(b"")
-    (audio / "Sound.wav").write_bytes(b"")
+    # this filesystem lets the comparison be exercised without Windows. On
+    # Windows the same literal is a nested path, so the parents must exist.
+    def touch(path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"")
+
+    touch(drivers / "OpenRuntime.efi")
+    touch(drivers / "Unused.efi")
+    touch(tools / "memtest86\\BOOTX64.efi")
+    touch(audio / "Sound.wav")
     for variant in ("Acidanthera\\GoldenGate", "Acidanthera\\Chardonnay"):
-        (image / variant).mkdir()
-        (image / variant / "Background.icns").write_bytes(b"")
+        (image / variant).mkdir(parents=True)
+        touch(image / variant / "Background.icns")
     (result / "manifest.json").write_text("{}")
 
     monkeypatch.setattr(pipeline, "_listing", _fake_listing({

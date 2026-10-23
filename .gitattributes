@@ -1,0 +1,4 @@
+# Every leg runs these under bash, and Git for Windows checks out with CRLF by
+# default; a shebang line followed by "\r" is not a shell script.
+*.sh text eol=lf
+.gitattributes text eol=lf

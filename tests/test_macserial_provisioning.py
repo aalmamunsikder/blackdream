@@ -45,6 +45,11 @@ GOOD_LINUX = b"\x7fELF synthetic macserial.linux payload for tests"
 GOOD_SHA = hashlib.sha256(GOOD_LINUX).hexdigest()
 TAMPERED = b"\x7fELF trojaned payload that must never run"
 
+# Resolution only looks for the current host's names, so a test that plants a
+# binary must plant the one this host would look for.
+HOST_PLATFORM = gathering_files.MACSERIAL_PLATFORM_BY_OS[gathering_files.os_name]
+HOST_NAME = gathering_files.MACSERIAL_NAMES_BY_OS[gathering_files.os_name][0]
+
 
 @pytest.fixture(autouse=True)
 def _quiet_sink():
@@ -75,8 +80,10 @@ def _pin_blobs(monkeypatch):
         ("linux", "macserial"): other,
         ("darwin", "macserial"): other,
         ("win32", "macserial.exe"): other,
+        (HOST_PLATFORM, HOST_NAME): GOOD_SHA,
     })
     monkeypatch.setattr(gathering_files, "MACSERIAL_MEMBER_SHA", {
+        HOST_NAME: GOOD_SHA,
         "macserial.linux": GOOD_SHA,
         "macserial": other,
         "macserial.exe": other,
@@ -152,7 +159,7 @@ def test_tampered_binary_is_refused_and_never_executed(monkeypatch, tmp_path):
     _pin_blobs(monkeypatch)
     tools = tmp_path / "tools"
     tools.mkdir()
-    (tools / "macserial.linux").write_bytes(TAMPERED)
+    (tools / HOST_NAME).write_bytes(TAMPERED)
     monkeypatch.setenv("BLACKDREAM_TOOLS_DIR", str(tools))
 
     executed = []
@@ -179,8 +186,8 @@ def test_resolution_honours_blackdream_tools_dir_first(monkeypatch, tmp_path):
     user = tmp_path / "user"
     override.mkdir()
     user.mkdir()
-    (override / "macserial.linux").write_bytes(GOOD_LINUX)
-    (user / "macserial.linux").write_bytes(GOOD_LINUX)
+    (override / HOST_NAME).write_bytes(GOOD_LINUX)
+    (user / HOST_NAME).write_bytes(GOOD_LINUX)
 
     monkeypatch.setattr(
         paths, "current",
@@ -190,11 +197,11 @@ def test_resolution_honours_blackdream_tools_dir_first(monkeypatch, tmp_path):
 
     monkeypatch.setenv("BLACKDREAM_TOOLS_DIR", str(override))
     chosen = g.find_macserial()
-    assert Path(chosen).resolve() == (override / "macserial.linux").resolve()
+    assert Path(chosen).resolve() == (override / HOST_NAME).resolve()
 
     monkeypatch.delenv("BLACKDREAM_TOOLS_DIR")
     chosen = g.find_macserial()
-    assert Path(chosen).resolve() == (user / "macserial.linux").resolve()
+    assert Path(chosen).resolve() == (user / HOST_NAME).resolve()
 
 
 # (e) ---------------------------------------------------------------------

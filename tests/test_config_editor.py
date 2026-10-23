@@ -47,9 +47,13 @@ def _use_isolated_tools(monkeypatch, tmp_path: Path) -> Path:
     return tools
 
 
+PLATFORM_KEY = editor._platform_key()
+INSTALL_NAME, ARCHIVE_MEMBER, _PINNED_DIGEST = editor.OCVALIDATE_ASSETS[PLATFORM_KEY]
+
+
 def _pin(monkeypatch, digest: str):
     monkeypatch.setattr(editor, "OCVALIDATE_ASSETS", {
-        "linux": ("ocvalidate.linux", "Utilities/ocvalidate/ocvalidate.linux", digest),
+        PLATFORM_KEY: (INSTALL_NAME, ARCHIVE_MEMBER, digest),
     })
 
 
@@ -227,7 +231,7 @@ def test_a_silent_nonzero_exit_is_still_a_reported_issue():
 
 def test_a_verified_tool_is_found_in_the_tools_directory(monkeypatch, tmp_path):
     tools = _use_isolated_tools(monkeypatch, tmp_path)
-    binary = tools / "ocvalidate.linux"
+    binary = tools / INSTALL_NAME
     binary.write_bytes(b"validator")
     binary.chmod(0o755)
     _pin(monkeypatch, hashlib.sha256(b"validator").hexdigest())
@@ -237,7 +241,7 @@ def test_a_verified_tool_is_found_in_the_tools_directory(monkeypatch, tmp_path):
 
 def test_a_tampered_tool_is_refused_before_it_runs(monkeypatch, tmp_path):
     tools = _use_isolated_tools(monkeypatch, tmp_path)
-    binary = tools / "ocvalidate.linux"
+    binary = tools / INSTALL_NAME
     binary.write_bytes(b"not the validated bytes")
     binary.chmod(0o755)
     _pin(monkeypatch, hashlib.sha256(b"validator").hexdigest())
@@ -255,7 +259,7 @@ def test_a_missing_tool_without_downloads_is_a_typed_failure(monkeypatch, tmp_pa
 
 def test_the_pinned_archive_installs_only_the_verified_member(monkeypatch, tmp_path):
     tools = _use_isolated_tools(monkeypatch, tmp_path)
-    member = "Utilities/ocvalidate/ocvalidate.linux"
+    member = ARCHIVE_MEMBER
     payload = b"inside the archive"
     archive_bytes = _archive_with(member, payload)
     _pin(monkeypatch, hashlib.sha256(payload).hexdigest())
@@ -273,7 +277,7 @@ def test_the_pinned_archive_installs_only_the_verified_member(monkeypatch, tmp_p
     monkeypatch.setattr(fetcher_module, "ResourceFetcher", FakeFetcher)
     installed = editor.ensure_ocvalidate()
 
-    assert installed == tools / "ocvalidate.linux"
+    assert installed == tools / INSTALL_NAME
     assert installed.read_bytes() == payload
     assert os.access(installed, os.X_OK)
 
@@ -281,7 +285,7 @@ def test_the_pinned_archive_installs_only_the_verified_member(monkeypatch, tmp_p
 def test_an_archive_member_with_the_wrong_digest_is_never_installed(
         monkeypatch, tmp_path):
     tools = _use_isolated_tools(monkeypatch, tmp_path)
-    member = "Utilities/ocvalidate/ocvalidate.linux"
+    member = ARCHIVE_MEMBER
     archive_bytes = _archive_with(member, b"tampered member")
     _pin(monkeypatch, hashlib.sha256(b"expected member").hexdigest())
     monkeypatch.setattr(editor, "OCVALIDATE_ARCHIVE_SHA256",
@@ -297,7 +301,7 @@ def test_an_archive_member_with_the_wrong_digest_is_never_installed(
     monkeypatch.setattr(fetcher_module, "ResourceFetcher", FakeFetcher)
     with pytest.raises(editor.OcvalidateVerificationFailed):
         editor.ensure_ocvalidate()
-    assert not (tools / "ocvalidate.linux").exists()
+    assert not (tools / INSTALL_NAME).exists()
 
 
 def test_serial_values_land_in_platform_info_and_keep_binary_rom():

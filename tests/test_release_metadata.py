@@ -344,9 +344,9 @@ def test_the_packages_install_the_helper_where_polkit_looks_for_it():
     packages = (ROOT / "packaging" / "make-linux-packages.py").read_text(encoding="utf-8")
     action = (ROOT / "src" / "blackdream" / "hardware"
               / "com.blackdream.dumpacpi.policy").read_text(encoding="utf-8")
-    assert str(INSTALLED_HELPER) in packages
+    assert INSTALLED_HELPER.as_posix() in packages
     assert ("<annotate key=\"org.freedesktop.policykit.exec.path\">{}</annotate>"
-            .format(INSTALLED_HELPER)) in action
+            .format(INSTALLED_HELPER.as_posix())) in action
 
 
 def test_the_macos_floor_is_measured_not_asserted():

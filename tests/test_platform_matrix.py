@@ -28,6 +28,11 @@ from ocengine import dsdt, gathering_files, paths  # noqa: E402
 
 # ---- where the app writes ----
 
+def _fake_home(monkeypatch, path):
+    """``Path.home()`` reads HOME on POSIX and USERPROFILE on Windows."""
+    monkeypatch.setenv("HOME", str(path))
+    monkeypatch.setenv("USERPROFILE", str(path))
+
 def test_linux_uses_xdg_data_home(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
     assert paths._data_root("posix", "linux") == tmp_path / "xdg" / "blackdream"
@@ -35,13 +40,13 @@ def test_linux_uses_xdg_data_home(monkeypatch, tmp_path):
 
 def test_linux_falls_back_to_the_home_directory(monkeypatch, tmp_path):
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _fake_home(monkeypatch, tmp_path)
     assert paths._data_root("posix", "linux") == (
         tmp_path / ".local" / "share" / "blackdream")
 
 
 def test_macos_uses_application_support(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _fake_home(monkeypatch, tmp_path)
     assert paths._data_root("posix", "darwin") == (
         tmp_path / "Library" / "Application Support" / "blackdream")
 
@@ -53,7 +58,7 @@ def test_windows_uses_localappdata(monkeypatch, tmp_path):
 
 def test_windows_falls_back_when_localappdata_is_unset(monkeypatch, tmp_path):
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _fake_home(monkeypatch, tmp_path)
     assert paths._data_root("nt", "win32") == (
         tmp_path / "AppData" / "Local" / "blackdream")
 

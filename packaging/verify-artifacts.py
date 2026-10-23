@@ -170,7 +170,7 @@ def audit_package(path: Path, problems: list) -> None:
         # built the package, is one polkit will not authorize. These two checks are the
         # reason the packages exist at all. Only the installed path counts: the bundle
         # carries its own copy under /opt, which polkit never looks at.
-        if name == str(INSTALLED_HELPER):
+        if name == INSTALLED_HELPER.as_posix():
             if not mode.endswith("rwxr-xr-x"):
                 problems.append("{} installs {} as {}, which polkit will refuse".format(
                     path.name, name, mode))

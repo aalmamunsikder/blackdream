@@ -203,15 +203,13 @@ def _digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def test_midstream_stall_is_retried_then_succeeds(monkeypatch):
+def test_midstream_stall_is_retried_then_succeeds(monkeypatch, tmp_path):
     body = b"the payload bytes"
     fake = _FakeUrlopen(body=body, stall_reads=2)
     monkeypatch.setattr(resource_fetcher, "urlopen", fake)
 
-    destination = "/tmp/blackdream_dl_ok.bin"
+    destination = str(tmp_path / "blackdream_dl_ok.bin")
     fetcher = make_fetcher()
-    if os.path.exists(destination):
-        os.remove(destination)
 
     assert fetcher.download_and_save_file(
         "https://example.test/payload", destination,
@@ -224,11 +222,11 @@ def test_midstream_stall_is_retried_then_succeeds(monkeypatch):
     os.remove(destination)
 
 
-def test_exhausting_stall_retries_raises_typed_error(monkeypatch):
+def test_exhausting_stall_retries_raises_typed_error(monkeypatch, tmp_path):
     fake = _FakeUrlopen(body=b"never arrives", stall_reads=99)
     monkeypatch.setattr(resource_fetcher, "urlopen", fake)
 
-    destination = "/tmp/blackdream_dl_stall.bin"
+    destination = str(tmp_path / "blackdream_dl_stall.bin")
     fetcher = make_fetcher()
 
     with pytest.raises(DownloadStalled) as caught:
@@ -240,15 +238,16 @@ def test_exhausting_stall_retries_raises_typed_error(monkeypatch):
     assert fake.calls == resource_fetcher.MAX_ATTEMPTS
     # A stall must never leave a file at the final destination.
     assert not os.path.exists(destination)
-    assert not [p for p in os.listdir("/tmp") if p.startswith("blackdream_dl_stall") and p.endswith(".part")]
+    assert not [p for p in os.listdir(tmp_path)
+                if p.startswith("blackdream_dl_stall") and p.endswith(".part")]
 
 
-def test_every_urlopen_response_is_closed_on_download(monkeypatch):
+def test_every_urlopen_response_is_closed_on_download(monkeypatch, tmp_path):
     body = b"payload for close test"
     fake = _FakeUrlopen(body=body)
     monkeypatch.setattr(resource_fetcher, "urlopen", fake)
 
-    destination = "/tmp/blackdream_dl_close.bin"
+    destination = str(tmp_path / "blackdream_dl_close.bin")
     fetcher = make_fetcher()
     try:
         assert fetcher.download_and_save_file(
@@ -333,11 +332,11 @@ def test_a_raised_rate_limit_stops_after_one_request(monkeypatch):
     assert calls == ["https://example.test/x"]
 
 
-def test_a_raised_rate_limit_during_download_is_not_retried(monkeypatch):
+def test_a_raised_rate_limit_during_download_is_not_retried(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(resource_fetcher, "urlopen", _raising_urlopen(429, calls))
 
-    destination = "/tmp/blackdream_dl_ratelimit.bin"
+    destination = str(tmp_path / "blackdream_dl_ratelimit.bin")
     fetcher = make_fetcher()
     assert fetcher.download_and_save_file(
         "https://example.test/x", destination,
@@ -355,12 +354,12 @@ def test_other_http_errors_are_still_retried(monkeypatch):
     assert len(calls) == resource_fetcher.MAX_ATTEMPTS
 
 
-def test_failed_download_leaves_no_partial_file(monkeypatch):
+def test_failed_download_leaves_no_partial_file(monkeypatch, tmp_path):
     # Digest never matches: the bytes are discarded and the destination is absent.
     fake = _FakeUrlopen(body=b"tampered bytes")
     monkeypatch.setattr(resource_fetcher, "urlopen", fake)
 
-    destination = "/tmp/blackdream_dl_bad.bin"
+    destination = str(tmp_path / "blackdream_dl_bad.bin")
     fetcher = make_fetcher()
     result = fetcher.download_and_save_file(
         "https://example.test/x", destination,
@@ -368,17 +367,18 @@ def test_failed_download_leaves_no_partial_file(monkeypatch):
 
     assert result is False
     assert not os.path.exists(destination)
-    assert not [p for p in os.listdir("/tmp")
+    assert not [p for p in os.listdir(tmp_path)
                 if p.startswith("blackdream_dl_bad") and p.endswith(".part")]
 
 
-def test_unpinned_download_still_refused(monkeypatch):
+def test_unpinned_download_still_refused(monkeypatch, tmp_path):
     fake = _FakeUrlopen(body=b"whatever")
     monkeypatch.setattr(resource_fetcher, "urlopen", fake)
 
     fetcher = make_fetcher()
     with pytest.raises(resource_fetcher.ExpectedHashMissing):
-        fetcher.download_and_save_file("https://example.test/x", "/tmp/x.bin")
+        fetcher.download_and_save_file(
+            "https://example.test/x", str(tmp_path / "x.bin"))
 
     assert fake.calls == 0
 

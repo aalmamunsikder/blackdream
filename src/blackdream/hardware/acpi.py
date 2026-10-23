@@ -67,7 +67,7 @@ class TablesHelperMissing(EngineError):
     code = "acpi.helper_missing"
     title = "The helper that reads firmware tables is not installed"
     remediation = ("Install it where only root can change it: sudo install -m 0755 -o root "
-                   "-g root «helper» " + str(INSTALLED_HELPER),
+                   "-g root «helper» " + INSTALLED_HELPER.as_posix(),
                    "then register its action: sudo cp «policy» /usr/share/polkit-1/actions/",
                    "Or run the helper yourself with sudo, and point the ACPI tables folder "
                    "at the directory it prints.")
