@@ -136,4 +136,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "BlackDream ${GITHUB_REF_NAME}" \
             --notes-file docs/RELEASE-NOTES.md \
+            --prerelease \
             staging/*
