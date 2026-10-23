@@ -85,6 +85,15 @@ class JobRunner:
 
     A Qt host must therefore receive it through a signal, not by touching widgets
     -- Qt queues cross-thread signal delivery onto the receiver's own thread.
+
+    Two different questions get two different answers, because the window and a
+    test harness ask different ones: :attr:`busy` is "is the engine still held",
+    which a button refresh has to read as False while it handles the outcome, and
+    :attr:`delivered` is "has that outcome been handed off", which is what a caller
+    waiting for a job to finish has to watch. Using ``busy`` for the second question
+    let a waiter return in the gap between the worker clearing the flag and the same
+    worker emitting the signal -- one frame in which the result existed, but no slot
+    had been queued to say so.
     """
 
     on_outcome: Callable[[Outcome], None] | None = None
@@ -92,16 +101,40 @@ class JobRunner:
     grace: float = 5.0
     _thread: threading.Thread | None = field(default=None, repr=False)
     _token: CancelToken | None = field(default=None, repr=False)
+    _running: bool = field(default=False, repr=False)
     _cancel_requested: bool = field(default=False, repr=False)
     _timed_out: bool = field(default=False, repr=False)
     _settled: bool = field(default=False, repr=False)
+    #: True while nothing is owed to ``on_outcome`` -- including before the first job.
+    _delivered: bool = field(default=True, repr=False)
     _finished: threading.Event = field(default_factory=threading.Event, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
     def busy(self) -> bool:
-        thread = self._thread
-        return thread is not None and thread.is_alive()
+        """Whether a job still holds the engine objects.
+
+        Not ``thread.is_alive()``: the worker delivers its outcome from inside
+        itself, so thread liveness is still true for the microseconds it takes to
+        unwind. The window reads this to re-enable the buttons that job was
+        blocking, and a button refresh that raced the teardown left `Validate` dead
+        until something else happened to refresh the page. ``_running`` is cleared
+        before the delivery, and an abandoned job leaves it set -- the stuck worker
+        is still inside the pipeline, so the next job must keep waiting.
+        """
+        return self._running
+
+    @property
+    def delivered(self) -> bool:
+        """Whether the job in flight has handed its outcome to ``on_outcome``.
+
+        False from the moment :meth:`start` takes a job until the callback has
+        returned, then True again -- so a runner with no job in flight reads True,
+        which is the honest answer: nothing is owed to anybody. A watchdog delivery
+        counts: an abandoned job's outcome is on its way even though ``busy`` stays
+        set for the thread that never unwound.
+        """
+        return self._delivered
 
     def start(self, job: Job) -> bool:
         """Begin ``job``. False when one is already running -- the GUI disables
@@ -117,9 +150,11 @@ class JobRunner:
                 return False
             token = CancelToken()
             self._token = token
+            self._running = True
             self._cancel_requested = False
             self._timed_out = False
             self._settled = False
+            self._delivered = False
             self._finished.clear()
             self._thread = threading.Thread(
                 target=self._guard, args=(job, token), name="blackdream-{}".format(job.name),
@@ -141,7 +176,13 @@ class JobRunner:
         token = CancelToken()
         with self._lock:
             self._token, self._cancel_requested, self._timed_out = token, False, False
-        return self._execute(job, token)
+            self._delivered = False
+        outcome = self._execute(job, token)
+        with self._lock:
+            # The outcome went to the caller rather than through ``on_outcome``;
+            # ``delivered`` means nobody has to wait for it any more.
+            self._delivered = True
+        return outcome
 
     # ---- internals ----
 
@@ -156,7 +197,9 @@ class JobRunner:
         finally:
             if watchdog is not None:
                 watchdog.cancel()
-        self._finished.set()
+            self._finished.set()
+            with self._lock:
+                self._running = False
         self._settle(outcome)
 
     def _expire(self, job: Job, token: CancelToken) -> None:
@@ -194,6 +237,8 @@ class JobRunner:
             self._token = None
         if self.on_outcome is not None:
             self.on_outcome(outcome)
+        with self._lock:
+            self._delivered = True
 
 
 class JobAbandoned(EngineError):

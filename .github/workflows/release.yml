@@ -1,0 +1,135 @@
+# Four legs: Linux and Windows, x86_64 and ARM64.
+#
+# PyInstaller builds an executable for the machine it runs on, so a Windows .exe cannot
+# be produced on Linux and an ARM64 bundle cannot be produced on an x86_64 host. Every
+# leg therefore runs the same packaging/build-release.sh the development machine runs,
+# and the runner is the only difference between the local artifact and the CI one.
+#
+# macOS is deliberately absent. GitHub retired the Intel macOS images, so Actions can
+# only produce an arm64 .app here, and a macOS beta has to be built and exercised on a
+# Mac before the release notes may say so.
+#
+# Each leg rebuilds the wheel and the sdist as well, because build-release.sh is one
+# gate rather than four half-gates; the duplicate names are resolved in the publish job,
+# which takes the Python distributions from one leg only. That matters: a wheel built on
+# Windows and a wheel built on Linux have the same name and different bytes, and
+# publishing both would be two files claiming to be the same artifact.
+
+name: Build beta artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      # One platform failing to build is a fact about that platform, not a reason to
+      # cancel the three that were working.
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            name: linux-amd64
+          - runner: ubuntu-24.04-arm
+            name: linux-arm64
+          - runner: windows-latest
+            name: windows-amd64
+          - runner: windows-11-arm
+            name: windows-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same interpreter the release notes name as the tested environment. The wheel
+      # is py3-none-any, but every bundle embeds whichever Python built it.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      # Qt needs these to construct a QGuiApplication even on the offscreen platform,
+      # and the runner image does not guarantee all of them.
+      - name: Linux Qt runtime libraries
+        if: startsWith(matrix.name, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1 libglib2.0-0
+
+      - name: Install the package and its build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      # tests/ diffs the vendored engine against untouched upstream at the pinned
+      # commit. Without the clone those tests skip, and the beta would be signed off by a
+      # suite that silently did less work than the one on the development machine.
+      - name: Clone pristine OpCore Simplify at the pinned commit
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          git clone https://github.com/lzhoang2801/OpCore-Simplify.git ../OpCore-Simplify
+          git -C ../OpCore-Simplify checkout --detach \
+            f0e1e441bb455c33e9695a9c9c50e8ca931d4de8
+
+      - name: Test, bundle, build wheel and sdist, verify the artifacts
+        shell: bash
+        run: bash packaging/build-release.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlackDream-${{ matrix.name }}
+          path: dist/release
+
+  # Tag pushes only. A dispatch builds and uploads the same artifacts without publishing
+  # anything, so a matrix can be tested without announcing it.
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: BlackDream-*
+          path: legs
+          merge-multiple: false
+
+      - name: Assemble the release files
+        run: |
+          python - <<'PY'
+          import hashlib, pathlib, shutil
+          legs, stage = pathlib.Path("legs"), pathlib.Path("staging")
+          stage.mkdir(exist_ok=True)
+          # One copy of each name. The bundles are named per platform, so they never
+          # collide; the wheel and the sdist do, and the Linux x86_64 leg owns them.
+          order = sorted(legs.iterdir(), key=lambda p: (p.name != "BlackDream-linux-amd64",
+                                                         p.name))
+          seen = set()
+          for leg in order:
+              for artifact in sorted(leg.iterdir()):
+                  if artifact.name == "SHA256SUMS.txt" or artifact.name in seen:
+                      continue
+                  seen.add(artifact.name)
+                  shutil.copy(artifact, stage / artifact.name)
+          lines = ["{}  {}".format(hashlib.sha256(p.read_bytes()).hexdigest(), p.name)
+                   for p in sorted(stage.iterdir())]
+          (stage / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          print("\n".join(lines))
+          PY
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "BlackDream ${GITHUB_REF_NAME}" \
+            --notes-file docs/RELEASE-NOTES.md \
+            staging/*

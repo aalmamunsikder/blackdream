@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=BlackDream
+GenericName=OpenCore EFI builder
+Comment=Check compatibility, build an EFI folder and edit config.plist without a terminal
+Exec=blackdream %f
+Icon=blackdream
+Terminal=false
+Categories=Qt;System;Filesystem;
+Keywords=opencore;efi;bootloader;hackintosh;macos;config.plist;
+MimeType=application/json;
+StartupNotify=true

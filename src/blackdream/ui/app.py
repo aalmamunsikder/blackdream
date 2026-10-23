@@ -7,6 +7,8 @@ rules matter more than the wiring:
   exists, because the engine logs while it is being constructed -- and those
   messages are the first thing needed when start-up fails.
 * No engine work runs on the GUI thread.
+* The crash hook is installed before anything else can raise, because a packaged
+  build has no terminal to print an unhandled exception to.
 
 There is deliberately no CLI for the build itself. ``--report`` and ``--output`` only
 pre-fill the window's fields; the user still presses the button. Upstream shipped a
@@ -21,7 +23,8 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from blackdream import __version__
+from blackdream import RELEASE_LABEL
+from blackdream.core import crash_log
 from blackdream.ui.main_window import MainWindow
 
 
@@ -35,11 +38,12 @@ def _parser() -> argparse.ArgumentParser:
                         help="Folder of ACPI tables, when no DSDT ships with the report")
     parser.add_argument("--smoke", action="store_true",
                         help="Build the window, render one frame, exit 0. For CI and packaging.")
-    parser.add_argument("--version", action="version", version="blackdream {}".format(__version__))
+    parser.add_argument("--version", action="version", version="blackdream {}".format(RELEASE_LABEL))
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    crash_log.install()
     args = _parser().parse_args(argv)
 
     if args.smoke and not os.environ.get("QT_QPA_PLATFORM"):
@@ -63,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         window.show()
         app.processEvents()
         print("blackdream {} smoke ok: platform={}".format(
-            __version__, app.platformName()))
+            RELEASE_LABEL, app.platformName()))
         return 0
 
     window.show()

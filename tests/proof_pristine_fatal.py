@@ -1,16 +1,12 @@
 import io, os, sys, contextlib, importlib, json
 from unittest import mock
 
+from pristine import insert_paths
+
 TARGET = sys.argv[1]           # "pristine" | "converted"
-sys.path.insert(0, "/data/BlackDream/blackdream/tests")
-if TARGET == "pristine":
-    sys.path.insert(0, "/data/BlackDream/OpCore-Simplify")
-    pkg = "Scripts"
-    import fixtures
-else:
-    sys.path.insert(0, "/data/BlackDream/blackdream/src")
-    pkg = "ocengine"
-    import fixtures
+insert_paths()
+pkg = "Scripts" if TARGET == "pristine" else "ocengine"
+import fixtures
 
 cc_mod = importlib.import_module(pkg + ".compatibility_checker")
 CompatibilityChecker = cc_mod.CompatibilityChecker

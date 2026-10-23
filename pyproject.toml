@@ -4,11 +4,44 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blackdream"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Cross-platform OpenCore EFI builder with a pure GUI and no terminal."
+readme = "README.md"
 license = "MIT"
-license-files = ["LICENSE", "src/ocengine/LICENSE.upstream.BSD-3-Clause"]
+license-files = [
+    "LICENSE",
+    "docs/THIRD-PARTY.md",
+    "src/ocengine/LICENSE.upstream.BSD-3-Clause",
+    "src/ocengine/VENDOR_NOTICE.txt",
+    "src/blackdream/hardware/sniffer/LICENSE.upstream.BSD-3-Clause",
+    "src/blackdream/hardware/sniffer/VENDOR_NOTICE.txt",
+    "src/blackdream/data/OpenCore-LICENSE.txt",
+    "src/blackdream/data/OCAT-LICENSE.txt",
+]
+authors = [{ name = "BlackDream contributors" }]
 requires-python = ">=3.11"
+keywords = [
+    "opencore",
+    "hackintosh",
+    "efi",
+    "bootloader",
+    "config.plist",
+    "macos",
+    "hardware-compatibility",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: System :: Hardware",
+    "Topic :: System :: Software Distribution",
+]
 dependencies = [
     "PySide6>=6.8",
     "certifi>=2024.2.2",
@@ -18,13 +51,39 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pyinstaller>=6.0",
+    "build>=1.2",
+    "trove-classifiers>=2024.10",
 ]
 
 [project.scripts]
 blackdream = "blackdream.ui.app:main"
 
+[tool.hatch.version]
+path = "src/blackdream/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/blackdream", "src/ocengine"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/LICENSE",
+    "/README.md",
+    "/docs",
+    "/packaging",
+    "/pyproject.toml",
+    "/src",
+    "/tests",
+    # The directory itself, and the harness that drives a real build through it, but
+    # never the binaries: ``tools/`` is where a developer pre-seeds ``iasl``,
+    # ``macserial`` and ``ocvalidate``, and the release notes state that no runtime
+    # binary ships with BlackDream. Shipping them here would make that false and would
+    # put GPL-or-BSD ``iasl`` in front of testers without its own notice.
+    "/tools/.gitkeep",
+    "/tools/e2e_build.py",
+]
+exclude = [
+    "/docs/screenshots",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

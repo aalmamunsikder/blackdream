@@ -51,6 +51,22 @@ def _quiet_sink():
     runtime.set_sink(runtime.NullSink())
 
 
+@pytest.fixture(autouse=True)
+def _isolated_tools(tmp_path, monkeypatch):
+    """Tests must never resolve a real tool from the checkout or the user profile.
+
+    A developer machine accumulates the real binaries in both ``tools/`` and
+    ``~/.local/share/blackdream/tools``; once either exists, a test that pins
+    synthetic digests either fails the digest check or silently passes against
+    bytes it did not create. Only the fixture's own directories are visible here.
+    """
+    root = tmp_path / "checkout"
+    monkeypatch.setattr(paths, "_SRC_ROOT", root / "src" / "ocengine")
+    isolated = paths.EnginePaths(cache_dir=root / "cache",
+                                 tools_dir=root / "user-tools")
+    monkeypatch.setattr(paths, "current", lambda: isolated)
+
+
 def _pin_blobs(monkeypatch):
     """Re-point the macserial pin tables at the synthetic blobs (they are data)."""
     other = "0" * 64

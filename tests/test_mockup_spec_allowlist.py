@@ -128,6 +128,8 @@ def _engine_errors():
     # test's whole value is that it sees every one of them.
     import blackdream.core.job_runner  # noqa: F401
     import blackdream.core.pipeline  # noqa: F401
+    import blackdream.core.installer  # noqa: F401
+    import blackdream.core.config_editor  # noqa: F401
     import blackdream.hardware  # noqa: F401
     import ocengine.acpi_guru  # noqa: F401
     import ocengine.dsdt  # noqa: F401
@@ -224,28 +226,41 @@ def test_stage_icons_match_the_window():
 
 def test_the_views_and_field_icons_match_the_window():
     from blackdream.ui.main_window import (
-        _FIELD_STATE, _PAGE_COPY, _PRIMARY_VIEWS, _SECONDARY_VIEWS, _VIEWS)
+        _BUILD_VIEWS, _FIELD_STATE, _PAGE_COPY, _SECTIONS, _SECONDARY_VIEWS, _VIEWS)
     allow = _allowlist()
     assert allow["views"] == list(_VIEWS)
+    assert allow["sections"] == list(_SECTIONS)
+    assert allow["build_views"] == list(_BUILD_VIEWS)
     assert allow["sidebar"]["secondary"] == list(_SECONDARY_VIEWS)
-    assert allow["search"]["hidden_views"] == list(_SECONDARY_VIEWS)
+    # The device search filters the table, which only exists on Compatibility; a
+    # pill on any other page -- including the new section pages -- reorders
+    # something invisible.
+    assert allow["search"]["hidden_views"] == [
+        name for name in _VIEWS if name != "Compatibility"]
     assert allow["page"]["titles"] == [_PAGE_COPY[name][0] for name in _VIEWS]
     assert allow["page"]["subtitles"] == [_PAGE_COPY[name][1] for name in _VIEWS]
     assert allow["field_icons"] == dict(_FIELD_STATE)
-    assert set(_PRIMARY_VIEWS) | set(_SECONDARY_VIEWS) == set(_VIEWS)
+    assert (set(_SECTIONS) | set(_BUILD_VIEWS) | set(_SECONDARY_VIEWS)
+            == set(_VIEWS))
 
 
 def test_settings_help_and_donate_are_pages_not_dialogs():
     """2.1 promoted the two modals to views and added Donate.
 
     The old methods are the easiest regression to spot: a reintroduced ``_show_settings``
-    would put a second, differently themed Settings surface back in the app.
+    would put a second, differently themed Settings surface back in the app. 3.0 added
+    two native installer dialogs; they are confirmations, not settings surfaces.
     """
     from blackdream.ui.main_window import MainWindow
 
     assert not hasattr(MainWindow, "_show_settings")
     assert not hasattr(MainWindow, "_show_help")
-    assert set(_allowlist()["dialogs"]) == {"engine_verdict"}
+    expects = {
+        "engine_verdict", "write_installer", "installer_written",
+        "add_key", "edit_value", "generate_serials",
+        "replace_serials", "remove_key", "overwrite_config",
+        "insert_preset"}
+    assert set(_allowlist()["dialogs"]) == expects
 
 
 def test_the_utility_views_render_exactly_the_cards_in_the_allowlist():
@@ -261,10 +276,14 @@ def test_the_utility_views_render_exactly_the_cards_in_the_allowlist():
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
+    # The USB scan reads the host's mounts; the card inventory does not need it.
+    window._usb_scanned = True
     allow = _allowlist()
     expected = {
+        "Installer": allow["installer"]["cards"],
         "Settings": allow["settings"]["cards"],
         "Help": allow["help"]["cards"],
+        "Configure EFI": allow["configure"]["cards"],
         "Donate": ([allow["donate"]["summary_title"]]
                    + [item["title"] for item in allow["donate"]["items"]]),
     }
@@ -272,15 +291,28 @@ def test_the_utility_views_render_exactly_the_cards_in_the_allowlist():
         for view, titles in expected.items():
             window._show_view(view)
             app.processEvents()
-            page = window.page_stack.currentWidget().widget()
+            page = window.page_stack.currentWidget()
+            if hasattr(page, "widget") and page.widget() is not None:
+                page = page.widget()
             shown = {label.text() for label in page.findChildren(QLabel)
                      if label.objectName() == "cardTitle"}
             assert shown == set(titles), (view, sorted(shown))
             assert window.page_title.text() == _PAGE_COPY[view][0]
             assert window.page_subtitle.text() == _PAGE_COPY[view][1]
             assert window.search.isHidden(), "the device search on {}".format(view)
-            assert any(button.text() == view and button.isChecked()
-                       for button in window.secondary_buttons)
+            assert window.page_actions.isHidden() is (view != "Configure EFI"), view
+            if view in allow["sections"]:
+                assert any(button.text() == view and button.isChecked()
+                           for button in window.nav_buttons), view
+            else:
+                assert any(button.text() == view and button.isChecked()
+                           for button in window.secondary_buttons), view
+            if view in ("Installer", "Configure EFI"):
+                allowed_buttons = set(allow["buttons"]) | {allow["fields"]["button"]}
+                buttons = list(page.findChildren(QPushButton))
+                if view == "Configure EFI":
+                    buttons += list(window.page_actions.findChildren(QPushButton))
+                assert {button.text() for button in buttons} <= allowed_buttons, view
         # The Donate page has no payment link and no field to type one into.
         window._show_view("Donate")
         app.processEvents()
@@ -290,7 +322,9 @@ def test_the_utility_views_render_exactly_the_cards_in_the_allowlist():
         funding = allow["donate"]["items"][-1]
         assert funding["body"] in {label.text() for label in donate.findChildren(QLabel)}
     finally:
-        window.runner.cancel()
+        for runner in (window.runner, window._installer_runner, window._usb_runner,
+                       window._config_runner):
+            runner.cancel()
         window._ticker.stop()
 
 
@@ -337,7 +371,7 @@ def test_status_labels_are_the_four_the_target_function_returns():
         target_status(Verdict("CPU", "x", "Up to macOS Sonoma 14", True,
                               compatibility=("19.0.0", "23.0.0")), "25.0.0").label,
     }
-    assert seen == set(_allowlist()["status_pills"]["labels"])
+    assert seen == set(_allowlist()["status_words"]["labels"])
 
 
 def test_rate_and_progress_copy_matches_the_dashboard():
@@ -356,18 +390,111 @@ def test_rate_and_progress_copy_matches_the_dashboard():
     assert allow["progress"]["percent"] == "«pct»%"
 
 
-def test_the_allowlist_describes_the_glass_dashboard_not_the_old_shell():
-    """2.0 removed the status bar, the menu bar and the separate steps card.
+def test_the_installer_and_configure_sections_name_their_cards():
+    """The two new sections are not allowed to grow a card the spec never saw."""
+    allow = _allowlist()
+    assert allow["installer"]["cards"] == ["macOS installer", "USB drive"]
+    assert allow["configure"]["cards"] == [
+        "config.plist", "Sections", "Keys", "Selected entry", "Validation"]
+    assert set(allow["installer"]["cards"]) | set(allow["configure"]["cards"]) \
+        <= set(allow["card_titles"])
 
-    None of those can be caught by the literal check, because a removed control's
-    strings simply stop appearing; the shape of §16 is what says they are gone.
+
+def test_help_shortcuts_are_generated_by_the_window():
+    """The Help card renders ``_shortcut_rows``; the allowlist must be that list.
+
+    The three workflow sections moved onto Ctrl 1/2/3 and the build tabs onto
+    Ctrl Shift 1/2/3 when 3.0 added the Installer. A mockup still printing the
+    2.6 bindings is the drift this pins.
+    """
+    from blackdream.ui.main_window import MainWindow
+
+    rows = MainWindow._shortcut_rows()
+    allow = _allowlist()["help"]["shortcuts"]
+    assert [row["action"] for row in allow] == [action for action, _keys in rows]
+    for row, (_action, keys) in zip(allow, rows):
+        assert row["mac"] == row["keys"].replace("Ctrl", "⌘")
+        assert keys == (row["mac"] if sys.platform == "darwin" else row["keys"])
+
+
+def test_installer_release_catalogue_matches_the_spec():
+    """The picker's contents are data, so §16 pins the data, not one label."""
+    from blackdream.core.installer import RECOVERY_RELEASES
+
+    allow = _allowlist()["installer"]["releases"]
+    assert [(release.name, release.version)
+            for release in RECOVERY_RELEASES] == list(
+                zip(allow["names"], allow["versions"]))
+
+
+def test_help_quick_start_is_generated_by_the_window():
+    """The Quick start card must describe the three sections, in workflow order.
+
+    A legal literal can still be on the wrong page or in the wrong order; this
+    pins the rendered rows, not just the string corpus.
+    """
+    from blackdream.ui.main_window import _QUICK_START
+
+    allow = _allowlist()["help"]
+    assert allow["quick_start"] == [
+        {"title": title, "body": body, "icon": icon}
+        for title, body, icon in _QUICK_START]
+    assert [title for title, _body, _icon in _QUICK_START][0] == "Make the installer"
+    assert [title for title, _body, _icon in _QUICK_START][-1] == "Configure the EFI"
+
+
+def test_help_quick_start_renders_one_row_per_step():
+    """A duplicated add() left every step on the card twice; count the rows.
+
+    The allowlist test above compares the table to the spec, not the table to
+    what the card built, so it cannot see a render-side duplicate.
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from blackdream.ui.main_window import MainWindow, _InfoRow, _QUICK_START
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window._usb_scanned = True
+    try:
+        window._show_view("Help")
+        app.processEvents()
+        rows = window.quick_start_card.findChildren(_InfoRow)
+        assert [row.body.text() for row in rows] == [
+            body for _title, body, _icon in _QUICK_START]
+        assert len(rows) == 6
+    finally:
+        for runner in (window.runner, window._installer_runner, window._usb_runner,
+                       window._config_runner):
+            runner.cancel()
+        window._ticker.stop()
+
+
+def test_the_allowlist_describes_the_native_window():
+    """2.6 keeps the platform frame and moves the mockup's silk inside the window.
+
+    The literal check cannot catch a removed control's strings, because they simply
+    stop appearing; the shape of §16 is what says the window uses the platform
+    frame, shows its menu bar everywhere, and groups the setup cards instead of
+    numbering them. The wallpaper is visual, not copy, so it is documented in §4
+    and pinned by the shell tests rather than added here.
     """
     allow = _allowlist()
+    assert allow["window"]["frameless"] is False
+    assert "inset" not in allow["window"]
+    assert "corner_radius" not in allow["window"]
+    assert allow["window"]["minimum_size"] == [1160, 700]
+    assert allow["menus"] == ["File", "View", "Help"]
+    assert allow["sidebar"]["workflow_label"] == "WORKFLOW"
+    assert "window_controls" not in allow["sidebar"]
     assert "status_bar" not in allow
-    assert "menus" not in allow
-    assert "Build steps" not in allow["card_titles"]
+    assert "Select files" not in allow["card_titles"]
+    assert "Actions" not in allow["card_titles"]
+    assert "macOS version" in allow["card_titles"]
     assert "Build progress" in allow["card_titles"]
-    assert "Actions" in allow["card_titles"]
     assert "Build EFI folder" not in allow["card_titles"]
-    assert allow["window"]["minimum_size"] == [1240, 800]
-    assert allow["sidebar"]["hint"] == "OpenCore EFI builder."
+    assert allow["sidebar"]["hint"] == "OpenCore, made simple."
+    appearance = allow["settings"]["appearance"]
+    assert appearance["choices"] == ["System", "Light", "Dark"]
+    assert appearance["hint"] == "Follows the system by default. Changes apply immediately."

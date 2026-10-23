@@ -1,5 +1,13 @@
 """BlackDream: cross-platform OpenCore EFI builder."""
 
-__version__ = "0.1.0"
+#: PEP 440 version, the one that goes into package metadata and the window's
+#: version resource. ``RELEASE_LABEL`` is what a human reads.
+__version__ = "0.9.0b1"
 
-__all__ = ["core", "ui", "__version__"]
+#: What the window, the CLI and the environment report display.
+RELEASE_LABEL = "0.9.0-beta.1"
+
+#: This build is pre-release: it asks for reports, it does not promise coverage.
+PRERELEASE = True
+
+__all__ = ["core", "ui", "__version__", "RELEASE_LABEL", "PRERELEASE"]

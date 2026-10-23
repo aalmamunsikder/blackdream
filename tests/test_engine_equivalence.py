@@ -1,19 +1,15 @@
 """Differential equivalence between the pristine upstream engine and ours.
 
-Needs the untouched clone at ``/data/BlackDream/OpCore-Simplify`` (pinned ``f0e1e44``);
-skips when it is not checked out, so CI on its own still passes.
+Needs the untouched clone (pinned ``f0e1e44``) beside this checkout, or wherever
+``BLACKDREAM_PRISTINE`` points; skips when it is not there, so CI on its own still
+passes.
 """
-
-import os
-import sys
-from pathlib import Path
 
 import pytest
 
-PRISTINE = "/data/BlackDream/OpCore-Simplify"
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pristine import is_available
 
-if not os.path.isdir(os.path.join(PRISTINE, "Scripts")):
+if not is_available():
     pytest.skip("pristine upstream clone not available", allow_module_level=True)
 
 import diff_engine

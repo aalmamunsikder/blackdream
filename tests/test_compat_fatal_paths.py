@@ -1,7 +1,7 @@
 """Golden compatibility verdicts, captured from the pristine upstream engine.
 
 Baseline recorded on 2026-10-22 by running ``Scripts.compatibility_checker`` from
-the untouched clone at ``/data/BlackDream/OpCore-Simplify`` (pinned ``f0e1e44``)
+the untouched upstream clone (pinned ``f0e1e44``, located by ``tests/pristine.py``)
 with stdin stubbed, over the fixtures in ``tests/fixtures.py``. Upstream signalled
 a fatal verdict by printing ANSI colour and calling ``sys.exit(0)``; ours raises a
 typed ``FatalIncompatibility`` and emits plain text to the sink. The device verdicts

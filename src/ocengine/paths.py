@@ -45,6 +45,7 @@ def _data_root(os_name=None, platform=None) -> Path:
 class EnginePaths:
     cache_dir: Path
     tools_dir: Path = field(default_factory=lambda: _data_root() / "tools")
+    log_dir: Path = field(default_factory=lambda: _data_root() / "logs")
 
 
 DEFAULT = EnginePaths(cache_dir=_SRC_ROOT / "OCK_Files")

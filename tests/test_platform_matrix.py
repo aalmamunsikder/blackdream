@@ -208,6 +208,8 @@ def test_the_window_draws_only_the_actions_this_host_has(
     monkeypatch.setattr(main_window.hardware, "acpi_supported", lambda: acpi_ok)
     win = main_window.MainWindow()
     try:
+        # 3.0 opens on the Installer; the capability links live on Compatibility.
+        win._show_view("Compatibility")
         assert win.collect_button.isVisibleTo(win) is collect_visible
         assert win.acpi_button.isVisibleTo(win) is acpi_visible
     finally:

@@ -18,6 +18,8 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 _DPR = 2.0
+#: Twelve 30-degree steps, one second per turn at the stage row's 90 ms tick.
+_SPINNER_FRAMES = 12
 
 _SVG = {
     "pulse": '<polyline points="2.5,12 7,12 9.5,6 13.5,18 16,12 21.5,12"/>',
@@ -52,6 +54,7 @@ _SVG = {
     "clock": '<circle cx="12" cy="12" r="9.2"/><polyline points="12,6.6 12,12 15.6,14"/>',
     "gauge": '<path d="M20.8 15.5a9.2 9.2 0 1 0-17.6 0"/><line x1="12" y1="12" x2="16.4" y2="7.6"/><circle cx="12" cy="12" r="1.3" fill="{color}" stroke="none"/>',
     "steps": '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.4" fill="{color}" stroke="none"/><circle cx="4" cy="12" r="1.4" fill="{color}" stroke="none"/><circle cx="4" cy="18" r="1.4" fill="{color}" stroke="none"/>',
+    "sliders": '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
     "cpu": '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1"/><path d="M9 1.8v3.2M15 1.8v3.2M9 19v3.2M15 19v3.2M1.8 9h3.2M1.8 15h3.2M19 9h3.2M19 15h3.2"/>',
     "gpu": '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="8" cy="12" r="2.2"/><circle cx="16" cy="12" r="2.2"/>',
     "monitor": '<rect x="2.5" y="4" width="19" height="12.5" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="16.5" x2="12" y2="21"/>',
@@ -118,6 +121,19 @@ def pixmap(name: str, color: str, size: int = 18) -> QPixmap:
     return _render(_document(_SVG[name]), size, color)
 
 
+@lru_cache(maxsize=256)
+def spinner(color: str, size: int = 16, frame: int = 0) -> QPixmap:
+    """One frame of the running mark, rotating the open arc around the icon.
+
+    The stage row owns the timer and only runs it while a stage is running, so an
+    idle window has no animation timer and no per-frame pixmap work.
+    """
+    angle = (frame % _SPINNER_FRAMES) * (360 // _SPINNER_FRAMES)
+    fragment = '<g transform="rotate({} 12 12)">{}</g>'.format(
+        angle, _SVG["spinner"])
+    return _render(_document(fragment), size, color)
+
+
 def icon(name: str, color: str, size: int = 18) -> QIcon:
     return QIcon(pixmap(name, color, size))
 
@@ -125,6 +141,16 @@ def icon(name: str, color: str, size: int = 18) -> QIcon:
 @lru_cache(maxsize=8)
 def logo(size: int = 40) -> QPixmap:
     return _render(_LOGO, size)
+
+
+def logo_svg() -> str:
+    """The mark as SVG source, so packaging can render the platform icon files.
+
+    One drawing has to serve the window, the ``.ico``, the ``.icns`` and the desktop
+    entry. Keeping the source here means an icon set cannot drift from what the app
+    paints.
+    """
+    return _LOGO
 
 
 @lru_cache(maxsize=256)
@@ -152,5 +178,6 @@ def tile(name: str, color: str, background: str, size: int = 28) -> QPixmap:
 def clear_caches() -> None:
     """Drop every cached rendering. Tests swap palettes and themes in one process."""
     pixmap.cache_clear()
+    spinner.cache_clear()
     logo.cache_clear()
     tile.cache_clear()

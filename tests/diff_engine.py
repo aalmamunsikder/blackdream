@@ -1,11 +1,11 @@
 """Differential harness: pristine upstream engine vs our vendored engine.
 
-Imports both module trees in one process (`Scripts` from the untouched clone at
-``/data/BlackDream/OpCore-Simplify``, `ocengine` from ``src/``), feeds each the same
-synthetic report, and compares the verdict text line by line. Upstream writes to
-stdout with ANSI colour and calls ``sys.exit``; ours writes to a sink and raises a
-typed error. Those two surfaces are normalised here -- anything else that differs is a
-real grading change introduced by the conversion.
+Imports both module trees in one process (`Scripts` from the untouched clone named by
+``tests/pristine.py``, `ocengine` from ``src/``), feeds each the same synthetic report,
+and compares the verdict text line by line. Upstream writes to stdout with ANSI colour
+and calls ``sys.exit``; ours writes to a sink and raises a typed error. Those two
+surfaces are normalised here -- anything else that differs is a real grading change
+introduced by the conversion.
 
 Run: python3 tests/diff_engine.py [limit]
 """
@@ -13,11 +13,13 @@ Run: python3 tests/diff_engine.py [limit]
 import contextlib, io, itertools, json, re, sys, time
 from unittest import mock
 
+from pristine import insert_paths, is_available
+
+if not is_available():
+    raise SystemExit("pristine upstream clone not found; set BLACKDREAM_PRISTINE")
+
 ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
-PRISTINE_ROOT = "/data/BlackDream/OpCore-Simplify"
-CONVERTED_ROOT = "/data/BlackDream/blackdream/src"
-sys.path.insert(0, PRISTINE_ROOT)
-sys.path.insert(0, CONVERTED_ROOT)
+insert_paths()
 
 import fixtures  # noqa: E402
 

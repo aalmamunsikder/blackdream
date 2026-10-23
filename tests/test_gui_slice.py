@@ -60,12 +60,17 @@ def _load(win, directory, name, data):
 
 
 def _settle(win, timeout=120.0):
-    """Pump the GUI loop until the runner reports idle, or fail loudly."""
+    """Pump the GUI loop until the engine has answered, or fail loudly.
+
+    ``runner.busy`` goes False a frame before the outcome is emitted, so the chain
+    and ``delivered`` together are what says the window is done talking.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         QApplication.processEvents()
-        if not win.runner.busy and not win._chain:
-            QApplication.processEvents()
+        if win.runner.delivered and not win._chain:
+            for _ in range(4):
+                QApplication.processEvents()
             return
         time.sleep(0.005)
     raise AssertionError("window never went idle: chain={}".format(

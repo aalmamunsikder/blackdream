@@ -93,6 +93,27 @@ def test_a_job_is_refused_while_another_holds_the_engine_objects():
     assert [o.job for o in outcomes] == ["first"]
 
 
+def test_busy_is_already_false_when_the_outcome_is_delivered():
+    """The window re-enables its buttons from inside this callback.
+
+    ``busy`` used to read thread liveness, which is still true while the worker
+    unwinds, so a refresh done from the callback could see the job as running and
+    leave ``Validate`` disabled until something else refreshed the page.
+    """
+    seen = []
+
+    def record(outcome):
+        seen.append(runner.busy)
+
+    runner = JobRunner(on_outcome=record)
+    assert runner.start(Job("state", lambda token: "done")) is True
+    deadline = time.monotonic() + 10
+    while not seen and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert seen == [False]
+    assert runner.busy is False
+
+
 def test_outcome_is_delivered_exactly_once_even_when_the_watchdog_fires():
     outcomes, runner = collect()
 
@@ -104,6 +125,32 @@ def test_outcome_is_delivered_exactly_once_even_when_the_watchdog_fires():
     assert wait_for(outcomes, timeout=5)
     time.sleep(0.4)
     assert len(outcomes) == 1, "both the worker and the watchdog delivered"
+
+
+def test_the_waiter_wakes_only_once_the_handover_is_complete():
+    """``delivered`` is the flag a Qt host waits on, not ``busy``.
+
+    The worker clears ``busy`` a frame before it emits, so a waiter that watched
+    ``busy`` could wake with the result computed and no slot yet queued to receive
+    it -- which is how a validation verdict went missing in a test that had no
+    reason to be flaky. ``delivered`` is set after the callback has returned.
+    """
+    seen = []
+
+    def record(outcome):
+        seen.append((runner.busy, runner.delivered))
+
+    runner = JobRunner(on_outcome=record)
+    assert runner.delivered is True, "an idle runner owes nobody an outcome"
+    assert runner.start(Job("state", lambda token: "done")) is True
+    assert runner.delivered is False, "the job in flight has handed nothing off"
+
+    deadline = time.monotonic() + 10
+    while not runner.delivered and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert seen == [(False, False)], "the flag is not set while the callback runs"
+    assert runner.delivered is True
 
 
 def test_a_thread_that_never_unwinds_is_abandoned_not_killed():
@@ -124,6 +171,7 @@ def test_a_thread_that_never_unwinds_is_abandoned_not_killed():
     assert "0.05 s budget" in outcome.error.detail
     assert "blocked" in outcome.error.detail
     assert runner.busy is True, "the abandoned thread is still alive, as documented"
+    assert runner.delivered is True, "the watchdog handed the outcome off"
     assert runner.start(Job("next", lambda token: None)) is False
     hold.set()
 
@@ -155,6 +203,7 @@ def test_run_now_does_not_block_future_starts():
     outcomes, runner = collect()
     runner.run_now(Job("sync", lambda token: 7))
     assert outcomes == [], "run_now returns the outcome, it does not broadcast it"
+    assert runner.delivered is True, "the caller has the result; nothing is owed"
     assert runner.start(Job("async", lambda token: 8)) is True
     assert wait_for(outcomes)
 

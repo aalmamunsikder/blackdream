@@ -8,27 +8,20 @@ second copy of our own.
 """
 
 import json
-import os
-import sys
-from pathlib import Path
 from itertools import product
 
 import pytest
 
-PRISTINE = "/data/BlackDream/OpCore-Simplify"
-SRC = Path(__file__).resolve().parents[1] / "src"
-for entry in (str(SRC), PRISTINE):
-    if entry not in sys.path:
-        sys.path.insert(0, entry)
+from pristine import insert_paths, is_available
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+insert_paths()
 
 import fixtures
 from blackdream.core import versions
 from ocengine.utils import Utils
 from ocengine.compatibility_checker import CompatibilityChecker  # noqa: F401
 
-if not os.path.isdir(os.path.join(PRISTINE, "Scripts")):
+if not is_available():
     pytest.skip("pristine upstream clone not available", allow_module_level=True)
 
 from Scripts.datasets import os_data as pristine_os_data
