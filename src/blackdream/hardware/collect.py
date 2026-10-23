@@ -117,10 +117,26 @@ def reconcile_report(validator: ReportValidator, path: Path, raw: dict) -> tuple
     if is_valid and not notes:
         return raw, []
 
-    findings = ["{}: {}".format(kind, item) for kind, items in (("error", errors), ("note", notes)) for item in items]
+    findings = ["{}: {}".format(kind, item)
+                for kind, items in (("error", errors), ("note", notes)) for item in items]
 
     if cleaned is None:
         raise CollectionRejected(detail="; ".join(errors))
+
+    # A section the scan came back empty for is simply absent from the report, and the
+    # engine rejects a report that does not carry its required sections -- so a virtual
+    # machine with no GPU, no USB controller and no storage controller produced a report
+    # the engine would not read at all. Saying "none found" is not a guess: it is what
+    # the scan measured. Sections whose schema requires members are left alone, because
+    # there the absence is of a value nobody saw, not of a device nobody found.
+    for name, rule in validator.SCHEMA["schema"].items():
+        if not rule.get("required", True) or name in cleaned:
+            continue
+        members = rule.get("schema", {})
+        if any(member.get("required", True) for member in members.values()):
+            continue
+        cleaned[name] = [] if rule.get("type") is list else {}
+        findings.append("note: no {} found".format(name.lower()))
 
     path.write_text(json.dumps(cleaned, indent=4), encoding="utf-8")
     is_valid, errors, notes, _ = validator.validate_report(str(path))

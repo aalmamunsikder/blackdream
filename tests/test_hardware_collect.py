@@ -145,6 +145,40 @@ def test_a_rejected_acpi_path_is_dropped_not_fatal(sink, tmp_path):
     assert Pipeline().load_report(path)["System Devices"]["LNXTHERM"]["Device"] == "LNXTHERM"
 
 
+def test_a_required_section_the_machine_lacks_is_stated_not_omitted(sink, tmp_path):
+    """A virtual machine has no GPU, USB controller or storage controller to report.
+
+    The scan omits empty sections and the engine then rejects the whole report for the
+    missing keys, which is how a clean machine produced "the scanned hardware report was
+    not accepted". Recording "none found" is what the scan actually measured.
+    """
+    raw = fixtures.coffee_lake_laptop()
+    for section in ("GPU", "USB Controllers", "Storage Controllers"):
+        del raw[section]
+    path = tmp_path / "Report.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    cleaned, findings = ReportCollector()._reconcile(ReportValidator(), path, raw)
+
+    assert cleaned["GPU"] == {}
+    assert cleaned["USB Controllers"] == {}
+    assert cleaned["Storage Controllers"] == {}
+    assert any("no gpu found" in finding for finding in findings)
+    assert Pipeline().load_report(path)["GPU"] == {}
+
+
+def test_a_missing_cpu_is_never_invented(sink, tmp_path):
+    """The counterpart: every CPU field is required, so an absent CPU means the scan saw
+    nothing it could name. Inventing a placeholder would grade a machine nobody measured."""
+    raw = fixtures.coffee_lake_laptop()
+    del raw["CPU"]
+    path = tmp_path / "Report.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(CollectionRejected):
+        ReportCollector()._reconcile(ReportValidator(), path, raw)
+
+
 def test_reconciliation_reports_when_it_cannot_fix_the_report(sink, tmp_path):
     path = tmp_path / "Report.json"
     path.write_text(json.dumps({"Motherboard": {"Name": "", "Chipset": "", "Platform": "Desktop"}}), encoding="utf-8")

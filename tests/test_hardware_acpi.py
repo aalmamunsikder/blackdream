@@ -23,6 +23,12 @@ from pathlib import Path
 import pytest
 
 from blackdream.hardware import acpi
+
+# Everything in this file is the Linux half of the ACPI step: polkit's action file,
+# ``pkexec``, and ``/sys/firmware/acpi/tables``. Windows has no ``os.geteuid`` and no
+# ``/sys``, so collecting the file there fails before a single test runs.
+LINUX = sys.platform.startswith("linux")
+pytestmark = pytest.mark.skipif(not LINUX, reason="the ACPI helper is Linux-only")
 from blackdream.hardware import dump_acpi_tables as helper
 from blackdream.core.pipeline import Cancelled
 from ocengine.fatal import EngineError
