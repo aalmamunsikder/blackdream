@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -196,8 +197,20 @@ def test_the_desktop_entry_launches_the_installed_command():
 
 
 def test_the_release_script_parses_and_runs_the_gates_in_order():
-    subprocess.run(["bash", "-n", str(ROOT / "packaging" / "build-release.sh")],
-                   check=True, capture_output=True)
+    script = ROOT / "packaging" / "build-release.sh"
+    # Git for Windows checks out with CRLF unless .gitattributes says otherwise, and a
+    # shebang followed by "\r" is not a script.
+    assert b"\r\n" not in script.read_bytes(), \
+        "the release script was checked out with CRLF"
+    # On a Windows runner the first ``bash`` on PATH is the WSL launcher, which exits 1
+    # when no distribution is installed. The CI step runs the script under Git Bash, so
+    # its syntax is still checked there.
+    bash = shutil.which("bash")
+    if bash and "system32" not in bash.lower():
+        finished = subprocess.run([bash, "-n", str(script)],
+                                  capture_output=True, text=True)
+        assert finished.returncode == 0, "{} rejected the script: {}".format(
+            bash, finished.stderr)
     assert SCRIPT.startswith("#!/usr/bin/env bash")
     assert "set -euo pipefail" in SCRIPT
     steps = ["test suite", "icons", "bundle", "notices", "bundle smoke test",
