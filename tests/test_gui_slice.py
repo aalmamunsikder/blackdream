@@ -307,6 +307,31 @@ def test_a_device_name_is_rendered_as_text_not_markup(window, tmp_path):
     assert _rows(window)[0].text(0) == "<b>Bold</b> CPU"
 
 
+def test_the_release_range_gives_way_before_the_device_name(window, tmp_path, qapp):
+    """Spec 14's table rule, measured instead of hoped for.
+
+    The card is 640 px wide at every window width, so the four columns have to share
+    a fixed budget: this pins that the support column is the one that shrinks, that
+    the name column never drops below its floor, and that whatever the table cannot
+    show is still in the row tooltip -- a report can name a device anything at all,
+    including the markup the test above feeds it, so elision is unavoidable and the
+    tooltip is what makes it survivable.
+    """
+    _load(window, tmp_path, "table", fixtures.alder_lake_desktop())
+    tree = window.verdict_tree
+
+    for width in (window.minimumSize().width(), 1280, 1900):
+        window.resize(width, 820)
+        for _ in range(6):
+            qapp.processEvents()
+        assert tree.columnWidth(0) >= tree._DEVICE_MIN, \
+            "the name column was squeezed at {} px".format(width)
+        assert tree._SUPPORT_MIN <= tree.columnWidth(2) <= tree._SUPPORT_MAX
+        for item in _rows(window):
+            assert item.toolTip(0) == item.text(0)
+            assert item.toolTip(2) == item.text(2)
+
+
 def test_cancellation_stops_a_running_job_and_releases_the_buttons(window, qapp):
     observed = []
 

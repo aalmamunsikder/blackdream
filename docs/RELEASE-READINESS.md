@@ -18,7 +18,7 @@ Statuses used below:
 * **Run** — executed by hand on a real machine, bundle or artifact this cycle.
 * **Not proved** — nothing here demonstrates it, and what would.
 
-The suite is 852 tests (850 pass, 2 skip: one needs `pefile` to read a Windows version
+The suite is 855 tests (853 pass, 2 skip: one needs `pefile` to read a Windows version
 resource, one only runs where artifacts have been built). `docs/RELEASE-NOTES.md` states
 that number and a test pins it to `pytest --collect-only`, so a claim about coverage
 cannot drift from the coverage.
@@ -28,11 +28,11 @@ cannot drift from the coverage.
 | Stage A bullet | Status | Evidence |
 | --- | --- | --- |
 | Reproducible artifacts for each supported platform | Run | the `Build beta artifacts` workflow built the Linux, Windows and Intel-macOS artifacts from the final commit of this cycle, and every leg's own audit step passed |
-| Complete automated suite plus the UI microcopy allowlist test | Proved | 852 collected, 850 passed, 2 skipped; `tests/test_mockup_spec_allowlist.py` is 31 of them |
+| Complete automated suite plus the UI microcopy allowlist test | Proved | 855 collected, 853 passed, 2 skipped; `tests/test_mockup_spec_allowlist.py` is 31 of them |
 | The P0 checklist, including fault injection for installer writes and config saves | Mapped below | every gate in section 2; the injected faults are the second-swap failure, the cancelled write, the refused swap, the externally changed file and `test_a_value_plist_cannot_hold_fails_the_save_before_it_touches_the_disk` |
 | The installer uses Apple's trust chain; pinned runtime binaries verified before they run | Proved | `test_the_real_apple_chunklist_verifies`, `test_asset_urls_must_stay_on_apple_cdn`, `test_a_tampered_tool_is_refused_before_it_runs`, `test_unpinned_download_still_refused` |
 | Upgrade, install and uninstall behaviour; user cache and output folders not deleted | Run | the audited `.deb` was installed and then removed against a fake root inside a throwaway user namespace, the development host untouched: 472 paths appeared, 459 went away with the removal, and the thirteen that stayed are `dpkg`'s own database. Everything planted beside the package survived — another package's doc, an `index.theme` inside the shared `hicolor` tree, a plist, a settings file, an EFI output folder, an unrelated application under `/opt` — and `dpkg` named the reason: `directory '/usr/share/icons/hicolor' not empty so not removed`. The helper and its polkit action read back `root:root` `0755` and `0644`, and writable state lives in `$XDG_DATA_HOME/blackdream`, never inside the root-owned `/opt/blackdream`. **Still not proved:** a desktop session answering polkit's prompt for the installed helper. |
-| Screenshots for the built states compared against the reject list | Run | all 14 window frames were re-rendered from this build, the six dialogs at their own sizes, and `docs/UI-MOCKUP-SPEC.md` §17 is what the allowlist test refuses |
+| Screenshots for the built states compared against the reject list | Run | all 14 window frames and the diagnostics dialog were re-rendered from this build at their own sizes, the other five dialogs came back byte-identical, and `docs/UI-MOCKUP-SPEC.md` §17 is what the allowlist test refuses |
 
 ## 2. Section 4 — P0 gates
 
@@ -256,6 +256,63 @@ re-measured here: five digests verified, the bundle's floor still glibc 2.35, an
 (`739a9e7e…` and `3fa21902…`, where the published beta 3 held only the second under
 `licenses/`). That bundle then started on this machine's Wayland session and again on X11.
 
+**Stage C's third gate — "200 % scaling and keyboard focus have been looked at on a desktop
+session" — was looked at, and it turned up four visible defects.** The method had to be
+measurement, not a glance: every view was rendered offscreen at 1280x820 and again with
+`QT_SCALE_FACTOR=2` (the grab comes back 2560x1640), every visible button was compared against
+its own `sizeHint()` at `minimumSize()`, and the keyboard was driven with real `Tab` and arrow
+events through `QTest`.
+
+Three of the four were clipping, and none of them could be seen in the published frames because
+every frame is 1536 px wide. The Configure EFI `Keys` card held eight buttons in one row and at
+the window's own minimum width squeezed `Changes…` into `hanges`; it is now two rows, `Undo`, `Redo`,
+`Changes…` over `Add key`, `Add item`, `Remove`, `Up`, `Down`. The brand tagline lost its last
+letter — the 200 px rail is a spec promise, so the row's own margins and spacing gave way instead,
+and `OpenCore, made simple.` now reads whole in all fourteen window frames. The Help card's
+"Nothing has been copied or saved." was squeezed beside two buttons into a narrow column and got
+its own line. The fourth was the progress card's stage names, which lost their last glyph
+mid-letter; the row now elides to the card's width and the tooltip carries the whole line.
+`test_no_button_is_narrower_than_its_own_label` walks all eight views at `minimumSize()` and
+refuses any button narrower than its own label — it fails on the pre-fix layout with seven
+offenders, which is what makes it worth having.
+
+**200 % scaling found nothing new, and that is the finding.** Qt doubles the device pixels and
+leaves the logical geometry alone, so a card that fits at 1280 logical pixels fits at 2560
+device pixels, and one that clips does both. The one place where the spec promised a mechanism
+the code does not have was §14's Devices-table rule — "wrapping the `macOS support` column, never
+by truncating a device name mid-token". Measured: the card is 640 px wide at every window width,
+the table gives way from the right (the support column shrinks from 266 px to its 110 px floor
+before the name column loses anything, which keeps at least 165 px), and a name longer than that
+elides with the whole string in the row tooltip. Wrapping was not implemented: a report can name
+a device anything at all — `test_a_device_name_is_rendered_as_text_not_markup` feeds it
+`<b>Bold</b> CPU` — so no fixed-width column can promise against truncation, and the row height
+is pinned at 29 px by design. §14 now states the mechanism the code actually has, and
+`test_the_release_range_gives_way_before_the_device_name` pins the column floors at 1160, 1280
+and 1900 px.
+
+**Keyboard focus reaches what the spec names, and two things that looked like bugs are not.**
+`test_the_keyboard_reaches_what_the_spec_promises` drives the rail the way a person does: `Tab`
+lands on the group's first button, five `Down` presses visit all six and change the page each
+time, ending on `Donate`; the theme picker and all three Help diagnostics buttons are in the
+`Tab` chain. Measured chain lengths at 1280x820: Compatibility 22 stops, Build 12, Installer 7,
+Logs 6, Help 5, Settings 2 controls, Configure EFI 2 with no document open and 14 with one,
+Donate 1 control — and Donate is meant to have none, since its own card says "Donation links are
+not open yet. No payment button is shown until there is a page behind it." The two near-misses: only
+the rail's first button carries `Qt.TabFocus` (`0xB` against `0xA` for the other five), which is
+Qt's own auto-exclusive focus fix-up and not a defect; and the obvious-looking repair — putting
+the six buttons in an explicit `QButtonGroup` — was tried and measurably *breaks* the arrow walk
+rather than enabling it. Sending `Down` at the window instead of the focused button also appears
+to do nothing, which is how the first pass at this gate nearly produced a wrong bug report.
+
+**The frames were re-rendered from the fixed build, and two were stale in a second way.** All
+fourteen window frames now come from this tree. Five of the six dialogs came back byte-identical
+to the frames they replace, which is the check that they still say what they say; the sixth,
+`15-diagnostics-bundle.png`, printed `BlackDream 0.9.0-beta.2` in a bundle the current app
+reports as `0.9.0-beta.3`, so it was re-rendered too. `08-settings.png` turned out to have been
+rendered on 2026-10-23, before the version bump: it read `BlackDream 0.1.0` with the theme pinned
+to `Light` and the storage card pointing at a scratch cache directory. It now shows the current
+version, the `System` default and the paths a first run really uses.
+
 ## 8. What this cycle changed in the code
 
 Five P0 claims were promises rather than evidence, and each now has a test:
@@ -281,3 +338,11 @@ Five P0 claims were promises rather than evidence, and each now has a test:
   recognises a notice by its bytes, and
   `test_two_vendored_documents_never_land_on_one_path_in_the_bundle` reads the spec and
   refuses a list in which two documents would write the same path.
+* The third Stage-C gate found four clipped labels and one spec sentence describing a
+  mechanism the code never had. The Configure toolbar's eight buttons became two rows, the
+  brand tagline and the Help diagnostics note got the room they need, and a long stage name
+  elides with the whole line in its tooltip;
+  `test_no_button_is_narrower_than_its_own_label` and
+  `test_the_keyboard_reaches_what_the_spec_promises` pin the two rules a screenshot cannot.
+  §14's Devices-table sentence now states the column floors the table actually keeps, with
+  `test_the_release_range_gives_way_before_the_device_name` holding them at three widths.

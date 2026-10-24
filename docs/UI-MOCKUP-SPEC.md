@@ -1096,8 +1096,13 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
   exceed 7:1 in each theme. Do not lighten them for aesthetics.
 - Never colour alone: status cells pair an icon with a word, stage rows pair an icon with a state
   name, field states pair an icon with a tooltip.
-- The Devices table must survive a 200 % UI scale by wrapping the `macOS support` column, never by
-  truncating a device name mid-token. The full name is always in the row tooltip.
+- The Devices table gives way from the right: the `macOS support` column shrinks (266 px down to
+  its 110 px floor) before the Device column loses anything, so a name keeps every pixel the card
+  can spare. A name longer than that column is elided - the table is 640 px wide at every window
+  width, and no fixed column can promise otherwise against a string a report supplied - and the
+  whole name and the whole release range are in the row tooltip. A 200 % UI scale changes nothing
+  here: Qt doubles the device pixels and leaves the logical geometry, so what fits at 100 % fits
+  at 200 %.
 - Engine text is untrusted content: device names come from a report written by another program, and
   remote filenames come from GitHub. Mockups should show long, awkward names
   (`Intel Cannon Lake-HDMI`, `Realtek RTL8821CE-CU4AA_921E PCIe Network Card`) rather than tidy ones.
@@ -1239,8 +1244,10 @@ result. Nothing on this page leaves the window, mounts a disk or writes the file
 - **`Keys` card** (stretch). Title `Keys`; hint `Select a value to edit it. Keys this build does
   not know are kept as they are.` The card header holds the 150–190 px `Search keys…` field
   with its clear button and, to its right, the 30 px outline `Presets…` button. Below it a
-  toolbar of 30 px outline buttons: `Undo`, `Redo`, `Changes…`, `Add key`, `Add item`,
-  `Remove`, `Up`, `Down`. `Undo` and `Redo` carry the edit they will reverse or repeat in their
+  toolbar of 30 px outline buttons in two rows — `Undo`, `Redo`, `Changes…` over
+  `Add key`, `Add item`, `Remove`, `Up`, `Down` — because one row of eight is wider than the
+  card at the window's minimum width and the labels were clipped there. `Undo` and `Redo`
+  carry the edit they will reverse or repeat in their
   tooltip and are disabled when the matching stack is empty. `Changes…` reads
   `Changes («n»)…` while the document differs from the file that was opened, and opens
   `Changes since the file was opened`: a read-only tree with headers `Change` · `Key` · `Before` ·

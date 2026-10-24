@@ -558,12 +558,15 @@ class MainWindow(QMainWindow):
         title = QWidget()
         title.setObjectName("brandBar")
         title_layout = QVBoxLayout(title)
-        title_layout.setContentsMargins(2, 2, 2, 0)
+        title_layout.setContentsMargins(0, 2, 0, 0)
         title_layout.setSpacing(0)
 
+        # The 200 px rail is a spec promise, so the tagline takes the room from the
+        # brand row's own margins: at the old 10 px gap "OpenCore, made simple." lost
+        # its last letter to the rail.
         brand = QHBoxLayout()
-        brand.setContentsMargins(2, 0, 0, 0)
-        brand.setSpacing(10)
+        brand.setContentsMargins(0, 0, 0, 0)
+        brand.setSpacing(6)
         mark = QLabel()
         mark.setPixmap(icons.logo(46))
         mark.setFixedSize(46, 46)
@@ -1418,8 +1421,12 @@ class MainWindow(QMainWindow):
             "Keys",
             "Select a value to edit it. Keys this build does not know are kept "
             "as they are.")
-        toolbar = QHBoxLayout()
+        toolbar = QVBoxLayout()
         toolbar.setSpacing(6)
+        history_row = QHBoxLayout()
+        history_row.setSpacing(6)
+        edit_row = QHBoxLayout()
+        edit_row.setSpacing(6)
         self.config_undo = QPushButton("Undo")
         self.config_undo.setObjectName("outline")
         self.config_undo.setMinimumHeight(30)
@@ -1456,11 +1463,17 @@ class MainWindow(QMainWindow):
         self.config_down.setObjectName("outline")
         self.config_down.setMinimumHeight(30)
         self.config_down.clicked.connect(lambda: self._move_config_item(1))
-        for button in (self.config_undo, self.config_redo, self.config_changes,
-                       self.config_add_key, self.config_add_item,
+        # Two rows, because eight buttons do not fit the card at the window's own
+        # minimum width: a single row squeezed them until "Changes…" drew as "hanges".
+        for button in (self.config_undo, self.config_redo, self.config_changes):
+            history_row.addWidget(button)
+        history_row.addStretch(1)
+        for button in (self.config_add_key, self.config_add_item,
                        self.config_remove, self.config_up, self.config_down):
-            toolbar.addWidget(button)
-        toolbar.addStretch(1)
+            edit_row.addWidget(button)
+        edit_row.addStretch(1)
+        toolbar.addLayout(history_row)
+        toolbar.addLayout(edit_row)
         self.config_search = QLineEdit()
         self.config_search.setObjectName("configSearch")
         self.config_search.setPlaceholderText("Search keys\u2026")
@@ -1866,9 +1879,12 @@ class MainWindow(QMainWindow):
         diagnostics_row.setSpacing(10)
         diagnostics_row.addWidget(self.diagnostics_bundle_button)
         diagnostics_row.addWidget(self.copy_diagnostics_button)
-        diagnostics_row.addWidget(self.diagnostics_note, 1)
+        diagnostics_row.addStretch(1)
         self.diagnostics_card.add(diagnostics)
         self.diagnostics_card.add(diagnostics_row)
+        # The note gets its own line: beside two buttons it had ~40 px of a narrow
+        # card left and wrapped "Nothing has been copied or saved." into a column.
+        self.diagnostics_card.add(self.diagnostics_note)
         self.diagnostics_card.finish()
         bottom.addWidget(self.troubleshooting_card, 3)
         bottom.addWidget(self.diagnostics_card, 2)
@@ -6391,6 +6407,7 @@ class _StageRow(QWidget):
         self.icon.setFixedSize(16, 16)
         self.name_label = QLabel(name)
         self.name_label.setObjectName("stageName")
+        self._name = name
         self.time = QLabel(elapsed)
         self.time.setObjectName("stageTime")
         self.time.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -6404,6 +6421,16 @@ class _StageRow(QWidget):
         self._spinner_timer.setInterval(90)
         self._spinner_timer.timeout.connect(self._advance_spinner)
         self.set_state(state, elapsed)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # Stage names are long and the progress card is half the page: cut to the
+        # card's width a name loses its last letter mid-glyph, so the row elides it
+        # and the item's tooltip carries the whole line.
+        shown = self.name_label.fontMetrics().elidedText(
+            self._name, Qt.ElideRight, max(self.name_label.width(), 0))
+        if shown != self.name_label.text():
+            self.name_label.setText(shown)
 
     def set_palette(self, palette: dict) -> None:
         self._palette = palette

@@ -22,8 +22,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QSize, Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QApplication, QBoxLayout, QWidget)
+    QApplication, QBoxLayout, QLabel, QPushButton, QWidget)
 
 from ocengine import runtime  # noqa: E402
 
@@ -202,6 +203,105 @@ def test_the_device_search_exists_only_where_the_table_does(make_window, qapp):
         window._show_view(name)
         qapp.processEvents()
         assert window.search.isHidden() == (name != "Compatibility"), name
+
+
+def test_no_button_is_narrower_than_its_own_label(make_window, qapp):
+    """The Configure toolbar held eight buttons in one row, and at the window's own
+    minimum width the row squeezed them until `Changes…` drew as `hanges`. Every frame
+    in ``docs/screenshots`` is 1536 px wide, so not one of them could show it — the
+    measurement has to happen at ``minimumSize()``, the smallest window a user can
+    drag this one to."""
+    window = make_window()
+    window.resize(window.minimumSize())
+    window.show()
+    for _ in range(4):
+        qapp.processEvents()
+
+    clipped = []
+    for name in _VIEWS:
+        window._show_view(name)
+        for _ in range(4):
+            qapp.processEvents()
+        for button in window.findChildren(QPushButton):
+            if not button.isVisible() or not button.text().strip():
+                continue
+            if button.width() < button.sizeHint().width():
+                clipped.append("{}: {} {!r} squeezed into {} px".format(
+                    name, button.objectName() or "button", button.text(),
+                    button.width()))
+    assert clipped == []
+
+    # The rail's 200 px is a spec promise, so the tagline beside the mark is what has
+    # to give -- and a clipped tagline is clipped in every one of the 20 screenshots.
+    hint = window.findChild(QLabel, "brandHint")
+    assert hint.sizeHint().width() <= hint.width(), \
+        "{!r} needs {} px in {} px".format(hint.text(), hint.sizeHint().width(),
+                                           hint.width())
+
+
+def test_the_keyboard_reaches_what_the_spec_promises(make_window, qapp):
+    """Spec 14 names three keyboard targets: the theme picker, the diagnostics
+    buttons and all six sidebar items.
+
+    The rail is one auto-exclusive button group, and Qt gives Tab to only the
+    group's first button and moves inside it with the arrow keys. So "reachable"
+    has to be walked the way a person drives it -- Tab to the rail, Down through
+    all six, Tab into the page -- or the test measures a chain nobody uses.
+    """
+    window = make_window()
+    window.resize(1280, 820)
+    window.show()
+    for _ in range(6):
+        qapp.processEvents()
+
+    def tab_chain(view):
+        window._show_view(view)
+        for _ in range(6):
+            qapp.processEvents()
+        if window.focusWidget() is not None:
+            window.focusWidget().clearFocus()
+        seen = []
+        while len(seen) < 60:
+            QTest.keyClick(window, Qt.Key_Tab)
+            for _ in range(3):
+                qapp.processEvents()
+            widget = qapp.focusWidget()
+            if widget is None or widget is window or widget in seen:
+                break
+            seen.append(widget)
+        return seen
+
+    assert window.theme_combo in tab_chain("Settings")
+    help_stops = tab_chain("Help")
+    for button in (window.first_boot_copy, window.diagnostics_bundle_button,
+                   window.copy_diagnostics_button):
+        assert button in help_stops, button.text()
+
+    window._show_view("Installer")
+    for _ in range(6):
+        qapp.processEvents()
+    if window.focusWidget() is not None:
+        window.focusWidget().clearFocus()
+    QTest.keyClick(window, Qt.Key_Tab)
+    for _ in range(3):
+        qapp.processEvents()
+    rail = window.nav_buttons + window.secondary_buttons
+    first = qapp.focusWidget()
+    assert first in rail, "Tab landed on {!r}, not the rail".format(first)
+    visited = [first]
+    for _ in range(len(rail) - 1):
+        # The key goes to the focused button, not the window: an exclusive button
+        # group handles the arrows in the button's own key handler, and a Down
+        # delivered to the window is a different event from one delivered to it.
+        QTest.keyClick(visited[-1], Qt.Key_Down)
+        for _ in range(3):
+            qapp.processEvents()
+        visited.append(qapp.focusWidget())
+    assert [button.text() for button in visited] == [button.text()
+                                                     for button in rail], \
+        "the rail hid {} from the keyboard".format(
+            [button.text() for button in rail if button not in visited])
+    assert window._view == "Donate", "the arrows moved the focus but not the page"
 
 
 def test_a_stage_event_updates_the_existing_rows(make_window):
