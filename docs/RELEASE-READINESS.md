@@ -245,8 +245,16 @@ delete the release and the tag, then re-tag the corrected commit under the same 
 rewrites a public record, invalidates the checksums anyone may already have filed, and buys
 nothing: the directory it repairs is the copy that was never load-bearing. Each asset shows
 one download, and that download is this record's own verification pass. The corrected
-`licenses` layout and the collision test reach testers with the next tag, and their first
-real exercise is that tag's audit.
+`licenses` layout and the collision test reach testers with the next tag — and that tag has
+to carry a new label, because `v0.9.0-beta.3` is taken and the publish job keys on the tag
+name. The fix was built and measured before it reaches a tag: run `40088446818` built all
+three platforms from `c749492` and every leg's own audit step passed — including the Linux
+leg's read of the `.rpm`, which this host cannot do — and the downloaded Linux bytes were
+re-measured here: five digests verified, the bundle's floor still glibc 2.35, and
+`_internal/licenses/ocengine/VENDOR_NOTICE.txt` and
+`_internal/licenses/sniffer/VENDOR_NOTICE.txt` both present with their source digests
+(`739a9e7e…` and `3fa21902…`, where the published beta 3 held only the second under
+`licenses/`). That bundle then started on this machine's Wayland session and again on X11.
 
 ## 8. What this cycle changed in the code
 
