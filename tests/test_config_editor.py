@@ -86,6 +86,25 @@ def test_save_keeps_the_previous_file_as_a_backup(tmp_path):
         "AvoidRuntimeDefrag"] is False
 
 
+def test_a_value_plist_cannot_hold_fails_the_save_before_it_touches_the_disk(
+        tmp_path):
+    """A document that cannot be serialised must refuse, not truncate.
+
+    A half-written config.plist is an unbootable machine, so the bytes are built
+    first and the file is only replaced once they exist.
+    """
+    document, _data = _document(tmp_path)
+    before = document.path.read_bytes()
+    document.data["Booter"]["Quirks"]["AvoidRuntimeDefrag"] = {1, 2}
+
+    with pytest.raises(editor.ConfigWriteFailed) as caught:
+        document.save()
+
+    assert "plist cannot serialise" in caught.value.detail
+    assert document.path.read_bytes() == before
+    assert sorted(item.name for item in tmp_path.iterdir()) == ["config.plist"]
+
+
 def test_an_external_change_is_detected(tmp_path):
     document, _data = _document(tmp_path)
     assert not document.changed_on_disk()

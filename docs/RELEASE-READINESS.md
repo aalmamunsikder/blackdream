@@ -15,12 +15,23 @@ Statuses used below:
 * **Run** — executed by hand on a real machine, bundle or artifact this cycle.
 * **Not proved** — nothing here demonstrates it, and what would.
 
-The suite is 849 tests (847 pass, 2 skip: one needs `pefile` to read a Windows version
+The suite is 850 tests (848 pass, 2 skip: one needs `pefile` to read a Windows version
 resource, one only runs where artifacts have been built). `docs/RELEASE-NOTES.md` states
 that number and a test pins it to `pytest --collect-only`, so a claim about coverage
 cannot drift from the coverage.
 
-## 1. Section 4 — P0 gates
+## 1. Stage A's own checklist (section 3 of the recommendation)
+
+| Stage A bullet | Status | Evidence |
+| --- | --- | --- |
+| Reproducible artifacts for each supported platform | Run | the `Build beta artifacts` workflow built the Linux, Windows and Intel-macOS artifacts from the final commit of this cycle, and every leg's own audit step passed |
+| Complete automated suite plus the UI microcopy allowlist test | Proved | 850 collected, 848 passed, 2 skipped; `tests/test_mockup_spec_allowlist.py` is 31 of them |
+| The P0 checklist, including fault injection for installer writes and config saves | Mapped below | every gate in section 2; the injected faults are the second-swap failure, the cancelled write, the refused swap, the externally changed file and `test_a_value_plist_cannot_hold_fails_the_save_before_it_touches_the_disk` |
+| The installer uses Apple's trust chain; pinned runtime binaries verified before they run | Proved | `test_the_real_apple_chunklist_verifies`, `test_asset_urls_must_stay_on_apple_cdn`, `test_a_tampered_tool_is_refused_before_it_runs`, `test_unpinned_download_still_refused` |
+| Upgrade, install and uninstall behaviour; user cache and output folders not deleted | **Not run** | the ownership rule in section 2 is what a package may own, and the `.deb`'s helper mode and owner are read off the finished artifact, but no machine has actually installed or removed this package: that needs root, and this host grants root only through polkit for the ACPI helper |
+| Screenshots for the built states compared against the reject list | Run | all 14 window frames were re-rendered from this build, the six dialogs at their own sizes, and `docs/UI-MOCKUP-SPEC.md` §17 is what the allowlist test refuses |
+
+## 2. Section 4 — P0 gates
 
 ### A. Installer integrity and USB safety
 
@@ -62,12 +73,12 @@ cannot drift from the coverage.
 | External change detected, Cancel is the default | Proved | `test_an_external_change_is_detected`, `test_saving_over_an_external_change_asks_first` |
 | Revert reloads the file and discards unsaved edits | Proved | `test_an_external_change_is_reported_and_revert_reloads`, `test_a_validation_result_clears_after_every_kind_of_edit` |
 | Key order and unknown keys survive | Proved | `test_key_order_is_part_of_what_is_preserved_by_history`, `test_a_round_trip_preserves_order_and_binary_values`, `test_missing_standard_keys_can_be_added_without_losing_unknown_ones` |
-| Value types and every byte of `data` preserved | Proved | `test_text_view_of_data_is_lossless_for_every_byte`, `test_text_view_rejects_text_that_would_change_bytes`, `test_type_names_distinguish_booleans_from_integers` |
+| Value types and every byte of `data` preserved | Proved | `test_text_view_of_data_is_lossless_for_every_byte`, `test_text_view_rejects_text_that_would_change_the_bytes`, `test_type_names_distinguish_booleans_from_integers` |
 | Preset uses the pinned schema, appends, does not duplicate | Proved | `test_inserting_a_preset_creates_its_target_and_never_duplicates`, `test_inserting_the_same_preset_again_selects_the_existing_entry`, `test_a_preset_that_does_not_fit_the_document_is_refused` |
 | Validation runs on a temporary copy | Proved | `test_validation_checks_a_temporary_copy_and_leaves_the_file_alone` — the copy holds the in-memory state, sits outside the config's own folder, is deleted afterwards, and the file on disk keeps its original bytes |
 | A verdict goes stale after any edit, add, remove, move, serial write or revert | Proved | `test_a_validation_result_clears_after_every_kind_of_edit` walks all seven mutation kinds |
 | Serials need confirmation and never reach the log | Proved | `test_generate_serials_confirms_before_touching_the_document`, `test_generated_smbios_values_never_reach_the_engine_log` |
-| An invalid or unreadable config never crashes or overwrites | Proved | `test_a_missing_or_unreadable_report_is_refused_before_grading`, `test_a_non_dictionary_root_is_refused`, `test_a_missing_file_is_read_as_a_typed_failure` |
+| An invalid or unreadable config never crashes or overwrites | Proved | `test_a_missing_or_unreadable_report_is_refused_before_grading`, `test_a_non_dictionary_root_is_refused`, `test_a_missing_file_is_read_as_a_typed_failure`, `test_a_value_plist_cannot_hold_fails_the_save_before_it_touches_the_disk` |
 
 ### D. Privacy, diagnostics and safe UI state
 
@@ -80,7 +91,7 @@ cannot drift from the coverage.
 | No password field; polkit prompts outside the app | Proved | `test_the_helper_refuses_to_run_unprivileged`, `test_a_refusal_from_polkit_keeps_its_own_reason`, `test_a_helper_the_calling_user_can_edit_is_never_offered` |
 | A rejected report clears the whole view | Proved | `test_a_fatal_report_clears_everything_the_previous_one_showed`, `test_a_missing_or_unreadable_report_is_refused_before_grading` |
 
-## 2. Section 5 — P1 release quality
+## 3. Section 5 — P1 release quality
 
 | Check | Status | Evidence |
 | --- | --- | --- |
@@ -98,7 +109,7 @@ cannot drift from the coverage.
 | Log filtering, copy, save, long lines, dropped-buffer warning | Proved | the log-page tests in `test_ui_native_shell.py`/`test_gui_slice.py`, including the dropped-lines warning |
 | Screens and labels match the current spec allowlist; nothing obsolete remains | Proved | `tests/test_mockup_spec_allowlist.py` (31 tests) pins shipped UI copy to `docs/UI-MOCKUP-SPEC.md` §16 and rejects the §17 list |
 
-## 3. Section 6 — test matrix as actually covered
+## 4. Section 6 — test matrix as actually covered
 
 Do not read a green suite as hardware coverage. This is what each cell really means.
 
@@ -128,7 +139,7 @@ machine nobody has reported, and a Mac that boots the result. The last one is ou
 scope by design — BlackDream has no boot button and a boot test remains the only proof of
 a boot.
 
-## 4. Section 7 — feedback loop
+## 5. Section 7 — feedback loop
 
 `.github/ISSUE_TEMPLATE/beta-report.md` is the template: version and environment line,
 which workflow, expected versus actual, whether it repeats, the error code on the red
@@ -137,11 +148,11 @@ machine. It carries the four severities with the recommendation's own definition
 their release actions. There is no form inside the app and nothing is uploaded;
 `docs/RELEASE-NOTES.md` and `README.md` say where to send it.
 
-## 5. Section 8 — success criteria
+## 6. Section 8 — success criteria
 
 | Criterion | Result |
 | --- | --- |
-| 100 % of the P0 checks pass on the candidate | Not met as written: 37 of the 38 gates are proved or run, and A12's pull-the-stick-mid-copy case has no evidence. The suite is green (847 passed, 2 skipped, 849 collected). |
+| 100 % of the P0 checks pass on the candidate | Not met as written: 37 of the 38 gates are proved or run, and A12's pull-the-stick-mid-copy case has no evidence. The suite is green (848 passed, 2 skipped, 850 collected). |
 | Zero known P0 defects | Met — none open. |
 | Every supported OS has one successful end-to-end Compatibility → Build → Configure run | Met on Linux; **not met** on Windows or macOS on real hardware |
 | Installer writing passes the safety checklist on every OS where it ships | **Not met** — proved against a directory stand-in only |
@@ -149,7 +160,7 @@ their release actions. There is no form inside the app and nothing is uploaded;
 | Every reported issue has severity, reproduction, owner, next action | Met for this cycle: the gaps are recorded above with what would close them |
 | Help text and the published notes state platform differences and limits | Met — the notes' *Tested on* and *Known issues* sections say so |
 
-## 6. Section 10 — go / no-go
+## 7. Section 10 — go / no-go
 
 **GO for Stage B (a small closed beta) on `0.9.0-beta.3`.** Stage A's exit gate is met in
 every clause but one: no known data-loss or wrong-target-write defect remains, and the
@@ -181,7 +192,7 @@ uninstall cannot take away a profile, a build history or a folder the user chose
 **Still gated on the maintainer:** pushing the tag runs the publish job, and a published
 release is public and effectively permanent. Nothing above authorises it.
 
-## 7. What this cycle changed in the code
+## 8. What this cycle changed in the code
 
 Five P0 claims were promises rather than evidence, and each now has a test:
 
