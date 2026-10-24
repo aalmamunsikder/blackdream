@@ -169,14 +169,20 @@ not meet is "every P0 check passes", because A12's physical-media half has no ev
 That is the half Stage B exists to test — journey 4 in `docs/RELEASE-NOTES.md` asks a
 tester to write to a stick they can afford to lose and safely eject it.
 
-The audited artifact and the published one must be the same bytes. The audit below was
-run on the CI build of the beta 3 sources, and these files ship inside the bundle
-(`README.md`, `docs/RELEASE-NOTES.md`), so after this record is committed the workflow has
-to run again on the final commit and the fresh download re-audited before any tag:
-`SHA256SUMS.txt` matched the CI build, the bundle's glibc floor measured 2.35, the `.deb`'s
-ACPI helper came out root-owned and mode-restricted, no runtime binary leaked into the
-wheel or sdist, and a package may only own the trees BlackDream's own files live in — so an
-uninstall cannot take away a profile, a build history or a folder the user chose.
+The audited artifact has to be the published one, so the workflow was run again on the last
+commit that changes anything inside a bundle (`README.md`, `docs/RELEASE-NOTES.md`,
+`docs/THIRD-PARTY.md` and `LICENSE` are copied beside the launcher) and the downloaded bytes
+were audited on this host: all five digests in `SHA256SUMS.txt` verified, the bundle's glibc
+floor measured 2.35, the `.deb`'s ACPI helper came out root-owned and mode-restricted, no
+runtime binary leaked into the wheel or sdist, and each package owns only the trees
+BlackDream's own files live in — so an uninstall cannot take away a profile, a build history
+or a folder the user chose. The bundle then started on this machine's Wayland session and
+again on X11 (`smoke ok: platform=wayland`, `smoke ok: platform=xcb`).
+
+This record is the one file that can still change afterwards, and it ships in neither the
+bundle nor the wheel: only the source distribution would carry it, so a wording fix here
+does not move a shipped binary. Anything else that changes must go through the same
+build-and-audit cycle before a tag.
 
 **NO-GO for Stage C (wider public beta) until:**
 
