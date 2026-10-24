@@ -6184,6 +6184,11 @@ class _HistoryDialog(QDialog):
 class _SchemaPreviewDialog(QDialog):
     """The pinned schema diff and what the validator says about the projection."""
 
+    #: Widest the key column may grow. Past this, the value columns would be
+    #: squeezed to their minimum, and a key that long is a list index anyway.
+    KEY_MAX = 520
+    KEY_MIN = 240
+
     def __init__(self, parent, preview, validation, palette: dict) -> None:
         super().__init__(parent)
         self.setWindowTitle("Schema preview")
@@ -6267,8 +6272,8 @@ class _SchemaPreviewDialog(QDialog):
         # resolves once the widget is polished, and a width measured against the
         # default font elides the one string the reader has to trust.
         self.tree.resizeColumnToContents(1)
-        self.tree.setColumnWidth(
-            1, min(max(self.tree.columnWidth(1), 240), 420))
+        self.tree.setColumnWidth(1, min(
+            max(self.tree.columnWidth(1), self.KEY_MIN), self.KEY_MAX))
 
     def _text(self) -> str:
         parts = [schema_preview.to_text(self.preview).rstrip()]

@@ -119,8 +119,8 @@ exact component states rather than adjectives.
 
 ### How to use this with an image model
 
-1. Attach the real screenshots — they exist, they are not concepts, and they are rendered by the
-   running app at 1536 × 1024:
+1. Attach the real screenshots — they exist, they are not concepts. The window frames are
+   rendered by the running app at 1536 × 1024; the dialogs are rendered at their own size:
    - `docs/screenshots/01-empty.png` · `02-compatibility-checked.png`
    - `docs/screenshots/03-device-details.png` · `04-build-view.png`
    - `docs/screenshots/05-logs-view.png` · `06-dark-compatibility.png`
@@ -128,7 +128,9 @@ exact component states rather than adjectives.
    - `docs/screenshots/09-help.png` · `10-donate.png`
    - `docs/screenshots/11-installer.png` · `12-configure.png`
    - `docs/screenshots/13-build-folder-checks.png` · `14-configure-history.png`
-   - `docs/screenshots/15-diagnostics-bundle.png`
+   - `docs/screenshots/15-diagnostics-bundle.png` · `16-compare-releases.png`
+   - `docs/screenshots/17-compare-reports.png` · `18-profiles.png`
+   - `docs/screenshots/19-build-history.png` · `20-schema-preview.png`
 2. Paste this whole file as context.
 3. Ask for one screen at a time, naming the section *and* the view, e.g.
    *"Render screen S4 (Fatal incompatibility card) on the Compatibility view at 1440×940, light
@@ -1446,8 +1448,9 @@ It starts the job `Previewing a schema migration`, shows the indeterminate bar w
 does not, keys the file has and the schema does not, and keys whose plist type differs. The 880 × 520
 dialog reads `Pinned schema: OpenCore «version»`, states that this is a reading and not a repair,
 counts the three finding kinds, and lists the findings themselves under `Change` `Key` `Current`
-`Pinned`, so the counts line and the rows can never disagree. `Key` is fixed to the width of the
-longest path, because an elided key is a different key; `Current` and `Pinned` share what is left.
+`Pinned`, so the counts line and the rows can never disagree. `Key` is measured against the font
+the platform actually renders with and sized to the longest path, up to 520 px, because an elided
+key is a different key; `Current` and `Pinned` share what is left.
 A projection
 is built by copying only scalars and empty containers, so a missing array or dict is named rather
 than invented; if it adds anything, `ocvalidate` runs on that projection in the worker and its own
