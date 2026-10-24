@@ -133,7 +133,12 @@ PACKAGE_FILES = ("BlackDream", "dump_acpi_tables.py", "com.blackdream.dumpacpi.p
 PACKAGE_PREFIXES = ("/opt/blackdream", "/usr/bin/blackdream", "/usr/lib/blackdream",
                     "/usr/share/applications/blackdream.desktop",
                     "/usr/share/polkit-1/actions/com.blackdream.dumpacpi.policy",
-                    "/usr/share/doc/blackdream", "/usr/share/icons/hicolor")
+                    "/usr/share/doc/blackdream", "/usr/share/icons/hicolor",
+                    # Not a tree BlackDream writes into: rpm fills it with symlinks derived
+                    # from the ELF binaries it just packaged, and removes exactly those on
+                    # uninstall. It names the package's own files and nothing else, so it is
+                    # allowed by name rather than by opening up all of /usr/lib.
+                    "/usr/lib/.build-id")
 
 
 def is_owned_path(name: str) -> bool:

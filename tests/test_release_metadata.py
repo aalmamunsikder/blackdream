@@ -428,13 +428,15 @@ def test_a_package_may_only_own_system_trees():
 
     owned = ("/opt/blackdream", "/opt/blackdream/BlackDream",
              "/usr/bin/blackdream", "/usr/lib/blackdream/dump_acpi_tables.py",
-             "/usr/share/polkit-1/actions/com.blackdream.dumpacpi.policy", "/usr", "/")
+             "/usr/share/polkit-1/actions/com.blackdream.dumpacpi.policy",
+             "/usr/lib/.build-id", "/usr/lib/.build-id/00/b91d07aa6f33", "/usr", "/")
     for name in owned:
         assert module.is_owned_path(name), name
 
     foreign = ("/home/tester/.local/share/blackdream/profiles.json",
                "/root/.cache/blackdream/recovery", "/opt/blackdreamx/BlackDream",
-               "/usr/share/doc/otherapp", "/etc/blackdream", "/var/tmp/bd")
+               "/usr/share/doc/otherapp", "/etc/blackdream", "/var/tmp/bd",
+               "/usr/lib/systemd/system/blackdream.service")
     for name in foreign:
         assert not module.is_owned_path(name), name
 
