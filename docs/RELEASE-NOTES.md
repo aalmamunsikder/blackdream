@@ -123,6 +123,39 @@ macOS 14 is the floor because PySide6 6.12 ships `macosx_14_0` wheels. The build
 `LSMinimumSystemVersion` from the Qt framework it is about to bundle rather than typing
 a number, so the promise in `Info.plist` is one the bundled Qt can keep.
 
+## What to test
+
+Five journeys, in this order. Each one ends in something you can look at, so a partial
+run is still a report. Do them on a machine you own or are allowed to break, and keep the
+destructive ones on a stick you can afford to reformat — never your only boot drive.
+
+1. **Report → verdicts.** Open a `Report.json`, or collect one on this machine, choose a
+   macOS release, then read a device row and open its details. Change the release and
+   confirm the `Status` column changes with it. `Compare releases…` should agree with
+   that column for every release it lists.
+2. **ACPI → build → folder.** Resolve whatever the ACPI card asks for, build the EFI
+   folder, and open it when the last stage finishes. All five stages should appear, in
+   order, with timings that move. Then start a build and cancel it: the active stage ends
+   as cancelled, the later ones stay pending, and no error card appears.
+3. **Edit → validate → save → backup.** Open the built `config.plist`, change one
+   reversible value, run validation, save, and confirm `config.plist.bak` sits beside it
+   with the previous bytes. Edit something else and press `Revert` — the on-disk version
+   comes back. Now edit the file in another program while it is open and save again from
+   BlackDream: it should ask before overwriting, with `Cancel` as the default answer.
+4. **Installer, up to the write.** Download a release and let it verify. Select a FAT32
+   stick you do not mind losing and read the confirmation: it should name that volume and
+   say only `EFI` and `com.apple.recovery.boot` are replaced. Write it, then check that
+   everything else on the stick is where you left it.
+5. **The failure paths on purpose.** Load a file that is not a report. Load a report whose
+   hardware cannot run macOS. Change a `config.plist` outside the app and let it notice.
+   Unplug the USB stick mid-write. A refusal should read as a refusal, with a reason, and
+   should never leave the previous report's devices on screen.
+
+The weakest part of this build is verdict coverage for hardware nobody has reported, so a
+report from an unusual machine — a laptop with an Optimus GPU, a board with Intel VMD on,
+a storage controller macOS has never heard of — is worth more than another successful
+launch. Long device names and empty ACPI folders are equally useful.
+
 ## Known issues and limitations
 
 * **The Linux ACPI helper needs the package, not the archive.** The `.deb` and `.rpm`
@@ -189,7 +222,10 @@ Include, in this order:
 7. whether your `Report.json` names your machine before you attach it publicly.
 
 Do not post SMBIOS serial, MLB, UUID or ROM values. There is no form inside the app and
-nothing is uploaded; send the report to whoever gave you this build.
+nothing is uploaded: the channel is outside the product. Open an issue in the repository
+this build came from and use its **Beta report** template, which asks for the seven things
+above in this order — or, if you got the build somewhere else, send it back that way. The
+`README.md` sitting beside these notes names the tracker.
 
 ## Checksums
 

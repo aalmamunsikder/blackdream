@@ -131,8 +131,12 @@ log saved from `Logs`. If a crash happened, attach the file from the crash-repor
 named in the environment info. Review a `Report.json` before you share it publicly — it
 describes your machine. Do not post SMBIOS serial, MLB, UUID or ROM values.
 
-There is no feedback form inside the app and no upload: send the report to whoever gave
-you this build.
+There is no feedback form inside the app and nothing is uploaded: BlackDream has no
+network path out of the window except the downloads it names. The feedback channel is
+outside the product — open an issue at
+[github.com/aalmamunsikder/blackdream](https://github.com/aalmamunsikder/blackdream/issues)
+using the **Beta report** template, which asks for exactly the list above. If you got this
+build from somewhere else, send it back the way it came instead.
 
 ## Building a release
 
@@ -149,10 +153,12 @@ sdist, archives the bundle and writes `SHA256SUMS.txt` for everything in
 `dist/release/`. `packaging/verify-artifacts.py` then reads the finished artifacts back
 and refuses the build if a runtime binary leaked into them or a notice is missing.
 
-Windows and macOS artifacts have to be built on their own platform;
-`packaging/blackdream.spec` carries the `.ico`/`.icns` wiring and the app bundle metadata
-for those runs. Only the Linux path of this script has actually been executed. Icons are
-generated from the in-app vector mark by `packaging/make_icons.py`.
+Every platform's artifacts are built by the same script on its own operating system —
+`.github/workflows/release.yml` runs it on Linux, Windows and Intel macOS runners — and
+the Linux leg runs on `ubuntu-22.04` on purpose: PyInstaller copies the build host's own
+system libraries, so a bundle built on a newer distro inherits a glibc floor the release
+refuses to publish. Icons are generated from the in-app vector mark by
+`packaging/make_icons.py`.
 
 ## License and credit
 
