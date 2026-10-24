@@ -47,6 +47,16 @@ class EnginePaths:
     tools_dir: Path = field(default_factory=lambda: _data_root() / "tools")
     log_dir: Path = field(default_factory=lambda: _data_root() / "logs")
 
+    @property
+    def state_dir(self) -> Path:
+        """Where the app keeps its own local records, beside the cache.
+
+        Derived from ``cache_dir`` rather than resolved separately so a caller that
+        redirects the cache (tests, packaged runs) also redirects these records
+        instead of writing into the real home directory.
+        """
+        return self.cache_dir.parent
+
 
 DEFAULT = EnginePaths(cache_dir=_SRC_ROOT / "OCK_Files")
 

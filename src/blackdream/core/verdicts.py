@@ -24,9 +24,9 @@ from ocengine.utils import Utils
 _CHECKER = CompatibilityChecker()
 _UTILS = Utils()
 
-# Only these sections carry per-device compatibility, in upstream's own order.
-# Sections absent from a report are skipped rather than shown as empty rows.
-_SECTIONS = (
+#: Only these sections carry per-device compatibility, in upstream's own order.
+#: Sections absent from a report are skipped rather than shown as empty rows.
+SECTIONS = (
     "CPU", "GPU", "Storage Controllers", "Network", "Sound",
     "USB Controllers", "Bluetooth", "SD Controller", "Monitor",
 )
@@ -65,25 +65,55 @@ class Status:
 
 def rows(report: dict[str, Any]) -> list[Verdict]:
     out: list[Verdict] = []
-    for section in _SECTIONS:
+    for section, name, device in device_blocks(report):
+        if "Compatibility" in device:
+            out.append(_one(section, name, device))
+        else:
+            # An ungraded GPU row still matters: it is how the user sees the
+            # device the engine refused to judge.
+            out.append(Verdict(section, name, "Unchecked", None,
+                               class_label(section, name),
+                               fields=_raw_fields(device)))
+    return out
+
+
+def device_blocks(report: dict[str, Any],
+                  include_ungraded: bool = False) -> list[tuple[str, str, dict]]:
+    """The device blocks a report records, named exactly the way :func:`rows` names them.
+
+    Selection only -- nothing here asks the engine anything -- which is what lets
+    :mod:`blackdream.core.report_compare` diff two files and still agree with the
+    table about which device is which. That disagreement was the bug this function
+    exists to prevent: a report keys each device by its own printable name, so the
+    key is the name, and only a block that *is* one device (``CPU``) has to be
+    labelled from inside it.
+
+    The table wants graded devices, plus GPUs the engine refused to judge. A report
+    comparison wants every device, because hardware that never got a verdict is
+    still hardware.
+    """
+    out: list[tuple[str, str, dict]] = []
+    for section in SECTIONS:
         block = report.get(section)
         if not isinstance(block, dict) or not block:
             continue
         if "Compatibility" in block:
-            out.append(_one(section, _label(block), block))
+            out.append((section, label(block), block))
+            continue
+        if include_ungraded and _is_device_block(block):
+            out.append((section, label(block), block))
             continue
         for name, device in block.items():
             if not isinstance(device, dict):
                 continue
-            if "Compatibility" in device:
-                out.append(_one(section, name, device))
-            elif section == "GPU":
-                # An ungraded GPU row still matters: it is how the user sees the
-                # device the engine refused to judge.
-                out.append(Verdict(section, name, "Unchecked", None,
-                                   class_label(section, name),
-                                   fields=_raw_fields(device)))
+            if include_ungraded or "Compatibility" in device or section == "GPU":
+                out.append((section, str(name), device))
     return out
+
+
+def _is_device_block(block: dict) -> bool:
+    """True when a section block describes one device rather than a set of them."""
+    return not any(isinstance(value, dict) for value in block.values())
 
 
 def _one(section: str, name: str, device: dict) -> Verdict:
@@ -104,7 +134,8 @@ def _one(section: str, name: str, device: dict) -> Verdict:
                    fields=_raw_fields(device))
 
 
-def _label(device):
+def label(device: dict) -> str:
+    """The name a report block calls itself by, for a device or a whole section."""
     for key in _NAME_KEYS:
         if device.get(key):
             return str(device[key])
