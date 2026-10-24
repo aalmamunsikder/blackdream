@@ -125,6 +125,34 @@ PACKAGE_FILES = ("BlackDream", "dump_acpi_tables.py", "com.blackdream.dumpacpi.p
                  "blackdream.desktop", "LICENSE", "THIRD-PARTY.md", "RELEASE-NOTES.md",
                  "README.md")
 
+#: The only trees a package may own. Both formats are staged from one list in
+#: ``make-linux-packages.py``, and an uninstall removes exactly what the package owns --
+#: so a path below a home directory in that list is a package that would take away the
+#: profiles, the build history, the artifact cache, or a folder the user chose to build
+#: into. The app writes all of those itself and none of them belong to a package manager.
+PACKAGE_PREFIXES = ("/opt/blackdream", "/usr/bin/blackdream", "/usr/lib/blackdream",
+                    "/usr/share/applications/blackdream.desktop",
+                    "/usr/share/polkit-1/actions/com.blackdream.dumpacpi.policy",
+                    "/usr/share/doc/blackdream", "/usr/share/icons/hicolor")
+
+
+def is_owned_path(name: str) -> bool:
+    """Whether a package may list this path at all.
+
+    A directory entry for an ancestor of an allowed tree -- ``/usr``, ``/usr/bin``,
+    ``/opt`` -- is created by both formats and owned by nobody, so it counts as allowed.
+    Anything that is not below, above or equal to one of ``PACKAGE_PREFIXES`` is not.
+    """
+    clean = "/" + name.strip("/")
+    if clean == "/":
+        return True  # the archive's own root entry, which names nothing
+    for prefix in PACKAGE_PREFIXES:
+        if clean == prefix or clean.startswith(prefix + "/"):
+            return True
+        if prefix.startswith(clean + "/"):
+            return True  # an ancestor directory both formats list: /usr, /usr/bin, /opt
+    return False
+
 
 def require(tool: str, package: str) -> str:
     found = shutil.which(tool)
@@ -180,6 +208,12 @@ def audit_package(path: Path, problems: list) -> None:
     for wanted in PACKAGE_FILES:
         if wanted not in basenames:
             problems.append("{} installs no {}".format(path.name, wanted))
+    outside = sorted({name for name, _mode, _owner in entries
+                      if not is_owned_path(name)})
+    if outside:
+        problems.append("{} owns {}, which is not a tree BlackDream's own files "
+                        "live in; an uninstall would take it away".format(
+                            path.name, ", ".join(outside[:3])))
     for name, mode, owner in entries:
         leaf = Path(name).name
         # A helper that the calling user could edit, or that belongs to the account that

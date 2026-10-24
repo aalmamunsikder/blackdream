@@ -1052,6 +1052,144 @@ def test_generate_serials_confirms_before_touching_the_document(
         "SystemSerialNumber"] == "C02TEST"
 
 
+def test_generated_smbios_values_never_reach_the_engine_log(
+        make_window, qapp, tmp_path, monkeypatch):
+    """A generated identity is written into the document and nowhere else.
+
+    The log is the file testers attach to a bug report, and the release notes
+    promise it holds no serial, MLB, UUID or ROM. This is the only thing that
+    keeps that promise honest: the values below are distinctive enough that a
+    future line logging an edit, a diff or the document would trip on them.
+    """
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+    folder = tmp_path / "build"
+    _efi_folder(folder)
+    window._set_efi_folder(str(folder))
+    generated = {"SystemSerialNumber": "C02GENERATED",
+                 "MLB": "C02GENERATEDMLB",
+                 "SystemUUID": "0EAD0000-0000-4000-8000-000000000001",
+                 "ROM": b"\x0e\xad\xbe\xef"}
+
+    class _Dialog:
+        def __init__(self, *args):
+            pass
+
+        def exec(self):
+            return ui.QDialog.Accepted
+
+        def selected_model(self):
+            return "MacPro7,1"
+
+    monkeypatch.setattr(config_editor, "serial_models", lambda: ["MacPro7,1"])
+    monkeypatch.setattr(config_editor, "generate_serials",
+                        lambda _model: dict(generated))
+    monkeypatch.setattr(ui, "_SerialDialog", _Dialog)
+    _message_box(monkeypatch, accept=True)
+
+    window._on_config_serials()
+    _settle(qapp, window._config_runner)
+    window._on_config_save()
+    window._drain()
+    qapp.processEvents()
+
+    assert window._config_doc.data["PlatformInfo"]["Generic"][
+        "SystemSerialNumber"] == "C02GENERATED"
+    written = (folder / "EFI" / "OC" / "config.plist").read_bytes()
+    assert written.count(b"C02GENERATEDMLB") == 1, "the value belongs in the file"
+
+    saved_log = "\n".join(
+        "[{}] [{}] {}".format(stamp, level, message)
+        for level, message, stamp in window._entries)
+    shown = "\n".join((window.log_view.toPlainText(), saved_log)).lower()
+    for secret in ("c02generated", "c02generatedmlb",
+                   "0ead0000-0000-4000-8000-000000000001", "0eadbeef"):
+        assert secret not in shown
+    assert "saved" in shown, "the log did record the save itself"
+
+
+def test_a_validation_result_clears_after_every_kind_of_edit(
+        make_window, qapp, tmp_path, monkeypatch):
+    """A verdict describes one revision of the document, never the next one.
+
+    Leaving "No issues found." on screen above a config the user has since
+    changed would report a check that no longer applies to what Save writes.
+    """
+    window = make_window()
+    _settle(qapp, window._usb_runner)
+    folder = tmp_path / "build"
+    _efi_folder(folder)
+    window._set_efi_folder(str(folder))
+    monkeypatch.setattr(
+        config_editor, "validate_document",
+        lambda _data: config_editor.ValidationResult(
+            ok=True, version="", issues=(), output="No issues found."))
+
+    class _Dialog:
+        def __init__(self, *args):
+            pass
+
+        def exec(self):
+            return ui.QDialog.Accepted
+
+        def selected_preset(self):
+            return config_presets.preset_by_key("kernel-trim")
+
+        def selected_model(self):
+            return "MacPro7,1"
+
+    monkeypatch.setattr(ui, "_PresetDialog", _Dialog)
+    monkeypatch.setattr(ui, "_SerialDialog", _Dialog)
+    monkeypatch.setattr(config_editor, "serial_models", lambda: ["MacPro7,1"])
+    monkeypatch.setattr(config_editor, "generate_serials",
+                        lambda _model: {"SystemSerialNumber": "C02STALE"})
+    _message_box(monkeypatch, accept=True)
+
+    def check():
+        window._on_config_validate()
+        _settle(qapp, window._config_runner)
+        assert window.config_validation_chip.text() == "Valid"
+
+    def cleared(what):
+        qapp.processEvents()
+        assert window.config_validation_chip.text() == "Not validated", what
+        assert window.config_validation_status.text() == (
+            "Not checked yet."), what
+
+    check()
+    item = _config_item(window, ("Booter", "Quirks", "ResizeAppleGpuBars"))
+    item.setText(1, "0")
+    cleared("an inline edit")
+
+    check()
+    _select(window, ("Kernel", "Add"))
+    window._on_config_add_item()
+    cleared("adding an array item")
+
+    check()
+    _select(window, ("Kernel", "Add", 1))
+    window._move_config_item(-1)
+    cleared("moving an item")
+
+    check()
+    _select(window, ("Kernel", "Add", 0))
+    window._on_config_remove()
+    cleared("removing an item")
+
+    check()
+    window._on_config_presets()
+    cleared("inserting a preset")
+
+    check()
+    window._on_config_serials()
+    _settle(qapp, window._config_runner)
+    cleared("writing generated serials")
+
+    check()
+    window._on_config_revert()
+    cleared("reverting to the file on disk")
+
+
 def test_a_data_value_opens_in_the_hex_editor(
         make_window, qapp, tmp_path, monkeypatch):
     window = make_window()

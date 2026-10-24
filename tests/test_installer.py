@@ -8,6 +8,8 @@ is patched here to return the stand-in.
 
 from __future__ import annotations
 
+import ast
+import collections
 import hashlib
 import json
 import os
@@ -342,3 +344,227 @@ def test_write_installer_rolls_back_when_the_second_swap_fails(tmp_path, monkeyp
     assert not (mount / "EFI" / "BOOT").exists()
     assert not (mount / "com.apple.recovery.boot").exists()
     assert not list(mount.glob(".blackdream-stage-*"))
+
+
+# ---- re-identifying the target before the first byte ---------------------
+
+
+#: The shape ``shutil.disk_usage`` answers with; the write path reads ``free``.
+_Disk = collections.namedtuple("_Disk", "total used free")
+
+
+def _prepared(tmp_path):
+    """A built folder, a verified recovery and a mounted stand-in volume with one
+    file on it that has to survive every refusal below."""
+    built = tmp_path / "built"
+    make_efi(built)
+    mount = tmp_path / "usb"
+    mount.mkdir()
+    (mount / "keep.txt").write_text("keep", encoding="utf-8")
+    return built, make_recovery(tmp_path), mount
+
+
+def test_a_drive_swapped_behind_the_confirmation_is_refused(tmp_path, monkeypatch):
+    """The list the user chose from was true a moment ago. ``_assert_target`` runs
+    again inside the write, so the drive that answers now has to be the drive that
+    was named -- not a smaller one that happened to get the same mount point."""
+    built, recovery, mount = _prepared(tmp_path)
+    volume = make_volume(mount, identity="usb:1")
+    monkeypatch.setattr(installer, "list_usb_volumes",
+                        lambda: [make_volume(mount, identity="usb:2")])
+
+    with pytest.raises(installer.UsbVolumeRefused) as caught:
+        installer.write_installer(volume, built, recovery)
+
+    assert "no longer present" in caught.value.detail
+    assert (mount / "keep.txt").read_text(encoding="utf-8") == "keep"
+    assert not list(mount.glob(".blackdream-stage-*"))
+
+
+def test_the_system_volume_is_refused_even_when_a_scan_offers_it(tmp_path, monkeypatch):
+    """A volume list is produced by scanning, and a scan can be wrong. The system
+    disk is refused by name as well, because the one write this app cannot take
+    back is the one to the volume this machine boots from."""
+    built, recovery, mount = _prepared(tmp_path)
+    volume = make_volume(mount, identity="usb:1")
+    monkeypatch.setattr(installer, "list_usb_volumes", lambda: [volume])
+    monkeypatch.setattr(installer, "_system_mounts", lambda: {str(mount)})
+
+    with pytest.raises(installer.UsbVolumeRefused) as caught:
+        installer.write_installer(volume, built, recovery)
+
+    assert "system volume" in caught.value.detail
+    assert not (mount / "EFI").exists()
+
+
+def test_a_drive_without_room_is_refused_before_anything_is_copied(tmp_path,
+                                                                  monkeypatch):
+    """Half of a multi-gigabyte copy onto a full stick is worse than none of it:
+    the previous installer has gone and the new one does not fit."""
+    built, recovery, mount = _prepared(tmp_path)
+    volume = make_volume(mount, identity="usb:1")
+    monkeypatch.setattr(installer, "list_usb_volumes", lambda: [volume])
+    monkeypatch.setattr(installer.shutil, "disk_usage",
+                        lambda path: _Disk(64 * 2**30, 0, 1024))
+
+    with pytest.raises(installer.InstallerCopyFailed) as caught:
+        installer.write_installer(volume, built, recovery)
+
+    assert "MiB free" in caught.value.detail
+    assert (mount / "keep.txt").read_text(encoding="utf-8") == "keep"
+    assert not list(mount.glob(".blackdream-stage-*"))
+
+
+# ---- resuming a half-downloaded image -----------------------------------
+
+
+class _StreamResponse:
+    """The three members of a ``urlopen`` result that ``_stream`` actually uses."""
+
+    def __init__(self, code, body):
+        self._code = code
+        self._body = body
+        self._pos = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def getcode(self):
+        return self._code
+
+    def read(self, _size):
+        piece = self._body[self._pos:self._pos + 64]
+        self._pos += len(piece)
+        return piece
+
+
+class _FakeCdn:
+    """Answers ``_stream``'s opener from a scripted list of ``(code, body)`` per
+    attempt, and keeps every request's headers so a range request can be told
+    apart from a fresh one."""
+
+    def __init__(self, answers):
+        self._answers = list(answers)
+        self.headers = []
+
+    def open(self, request, timeout=None):
+        self.headers.append(dict(request.header_items()))
+        code, body = self._answers.pop(0)
+        return _StreamResponse(code, body)
+
+
+BODY = bytes(range(256)) * 2
+
+
+def _stream_through(monkeypatch, cdn, destination):
+    monkeypatch.setattr(installer, "build_opener", lambda *args: cdn)
+    return installer._stream("http://oscdn.example.test/BaseSystem.dmg", "token",
+                             destination, "Test macOS", len(BODY), None)
+
+
+def test_a_partial_image_resumes_where_it_stopped(tmp_path, monkeypatch):
+    """A 7 GB image interrupted at a third of the way is the normal case for this
+    download, not the exception. Re-asking for the whole thing would make it never
+    finish on a machine with a short-lived connection."""
+    destination = tmp_path / "BaseSystem.dmg"
+    staging = destination.with_name(destination.name + ".part")
+    staging.write_bytes(BODY[:len(BODY) // 2])
+
+    cdn = _FakeCdn([(206, BODY[len(BODY) // 2:])])
+    result = _stream_through(monkeypatch, cdn, destination)
+
+    assert cdn.headers[0].get("Range") == "bytes={}-".format(len(BODY) // 2)
+    assert result.read_bytes() == BODY
+    assert not destination.exists()  # the caller promotes it only once verified
+
+
+def test_a_server_that_ignores_the_range_restates_the_whole_image(tmp_path,
+                                                                 monkeypatch):
+    """Appending a full 200 body to a half file gives an image that is neither the
+    old download nor the new one. Chunk verification catches that before a USB
+    drive sees it, so the cost of getting this wrong is a download that never
+    completes rather than a corrupt installer -- which is why it is still checked.
+    """
+    destination = tmp_path / "BaseSystem.dmg"
+    staging = destination.with_name(destination.name + ".part")
+    staging.write_bytes(BODY[:len(BODY) // 2])
+
+    cdn = _FakeCdn([(200, BODY)])
+    result = _stream_through(monkeypatch, cdn, destination)
+
+    assert cdn.headers[0].get("Range")  # it did ask to resume
+    assert result.read_bytes() == BODY
+
+
+#: The commands that would take a drive apart. Reading a mount table and copying
+#: files onto a volume is what the installer does; formatting, mounting,
+#: partitioning or opening the whole device is how a tester loses the machine they
+#: booted from. The notes promise that never happens, so it is enforced here on the
+#: syntax tree rather than repeated as a sentence.
+DISK_COMMANDS = {
+    "diskutil": frozenset({"list", "info", "enumerate"}),
+    "mount": frozenset(), "umount": frozenset(),
+    "mkfs": frozenset(), "newfs": frozenset(),
+    "fdisk": frozenset(), "sfdisk": frozenset(), "parted": frozenset(),
+    "dd": frozenset(), "mdadm": frozenset(), "blkdiscard": frozenset(),
+    "Format-Volume": frozenset(), "Set-Partition": frozenset(),
+    "Clear-Disk": frozenset(),
+}
+
+APP_SOURCE = Path(__file__).resolve().parents[1] / "src" / "blackdream"
+
+
+def _command_tokens(call) -> tuple:
+    """The words of a command literal, in order, or () when it is not a literal.
+
+    Only a constant command can be judged: a path built from a variable is the
+    business of the behaviour tests, not of this sweep.
+    """
+    if not call.args:
+        return ()
+    first = call.args[0]
+    if isinstance(first, ast.List):
+        return tuple(getattr(element, "value", None) for element in first.elts)
+    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+        return tuple(first.value.split())
+    return ()
+
+
+def test_the_app_never_formats_mounts_or_opens_a_disk():
+    offenders = []
+    for path in sorted(APP_SOURCE.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = (node.func.id if isinstance(node.func, ast.Name)
+                    else getattr(node.func, "attr", ""))
+            if name in {"run", "Popen", "call", "check_output", "check_call",
+                        "system", "popen"}:
+                tokens = _command_tokens(node)
+                for index, token in enumerate(tokens):
+                    if not isinstance(token, str):
+                        continue
+                    program = token.strip().replace("\\", "/").rsplit("/", 1)[-1]
+                    allowed = DISK_COMMANDS.get(program)
+                    if allowed is None and program.startswith(("mkfs", "newfs")):
+                        allowed = frozenset()
+                    if allowed is None:
+                        continue
+                    following = tokens[index + 1] if index + 1 < len(tokens) else ""
+                    if following not in allowed:
+                        offenders.append("{}:{}: would run {}".format(
+                            path.name, node.lineno, " ".join(
+                                str(item) for item in tokens[index:index + 2])))
+            elif name == "open" and node.args:
+                target = getattr(node.args[0], "value", None)
+                if isinstance(target, str) and (
+                        target.startswith("/dev") or "PhysicalDrive" in target
+                        or "/rdisk" in target):
+                    offenders.append("{}:{}: would open {}".format(
+                        path.name, node.lineno, target))
+
+    assert offenders == []

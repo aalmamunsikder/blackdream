@@ -412,6 +412,33 @@ def test_the_packages_install_the_helper_where_polkit_looks_for_it():
             .format(INSTALLED_HELPER.as_posix())) in action
 
 
+def test_a_package_may_only_own_system_trees():
+    """An uninstall removes exactly the files a package owns. Profiles, build history,
+    the artifact cache and whatever folder the user chose to build into all live below
+    a home directory, so a package that listed one of them would delete a person's work
+    the next time they upgraded. The audit reads this off the finished ``.deb`` and
+    ``.rpm``; this checks the rule itself, because not every build host can open both
+    formats."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "verify_artifacts_ownership", ROOT / "packaging" / "verify-artifacts.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    owned = ("/opt/blackdream", "/opt/blackdream/BlackDream",
+             "/usr/bin/blackdream", "/usr/lib/blackdream/dump_acpi_tables.py",
+             "/usr/share/polkit-1/actions/com.blackdream.dumpacpi.policy", "/usr", "/")
+    for name in owned:
+        assert module.is_owned_path(name), name
+
+    foreign = ("/home/tester/.local/share/blackdream/profiles.json",
+               "/root/.cache/blackdream/recovery", "/opt/blackdreamx/BlackDream",
+               "/usr/share/doc/otherapp", "/etc/blackdream", "/var/tmp/bd")
+    for name in foreign:
+        assert not module.is_owned_path(name), name
+
+
 def test_the_rpm_manifest_is_read_the_way_rpm_prints_it(monkeypatch, tmp_path):
     """``rpm -qvl`` prints an ``ls -l`` row, so the field after the mode is the link
     count, not the owner. Reading it as the owner made every RPM fail the audit with

@@ -229,6 +229,38 @@ def test_a_silent_nonzero_exit_is_still_a_reported_issue():
     assert result.issues == ("ocvalidate exited with status 3.",)
 
 
+def test_validation_checks_a_temporary_copy_and_leaves_the_file_alone(
+        tmp_path, monkeypatch):
+    """The saved config.plist is never the file ocvalidate is pointed at.
+
+    A validator that rewrote or truncated the real file would corrupt an EFI
+    folder the moment somebody pressed Validate, so the copy is temporary, it
+    holds the in-memory state rather than the old bytes, and it disappears.
+    """
+    document, _data = _document(tmp_path)
+    before = document.path.read_bytes()
+    document.data["Booter"]["Quirks"]["ResizeAppleGpuBars"] = -1
+    seen = []
+
+    def fake_run_ocvalidate(path, allow_download=True):
+        copy = Path(path)
+        seen.append(copy)
+        assert copy.parent != tmp_path
+        assert plistlib.loads(copy.read_bytes())["Booter"]["Quirks"][
+            "ResizeAppleGpuBars"] == -1
+        return editor.ValidationResult(
+            ok=True, version="", issues=(), output="No issues found.")
+
+    monkeypatch.setattr(editor, "run_ocvalidate", fake_run_ocvalidate)
+    result = editor.validate_document(document.data, allow_download=False)
+
+    assert result.ok
+    assert len(seen) == 1
+    assert not seen[0].exists() and not seen[0].parent.exists()
+    assert document.path.read_bytes() == before
+    assert list(tmp_path.iterdir()) == [document.path]
+
+
 def test_a_verified_tool_is_found_in_the_tools_directory(monkeypatch, tmp_path):
     tools = _use_isolated_tools(monkeypatch, tmp_path)
     binary = tools / INSTALL_NAME
