@@ -1,6 +1,6 @@
 # BlackDream — UI mockup specification
 
-**Version:** 3.5 · **Date:** 2026-10-23 · **Status:** every screen marked *built* is running code today
+**Version:** 3.6 · **Date:** 2026-10-24 · **Status:** every screen marked *built* is running code today
 
 3.0 is the shipped app window. It uses the **native window frame and title bar** on every platform
 and shows the real `File` / `View` / `Help` menu bar. Inside that client area the app paints its own
@@ -59,6 +59,46 @@ the validator's line. `Help` adds `Save diagnostic bundle…`: the dialog previe
 text, defaults `Report.json` to off, and writes a local `.txt` or `.zip` that the user attaches
 themselves. Every one of these surfaces is read-only, local and explicit; none writes an EFI
 partition, mounts a disk, uploads anything or claims that a clean result proves a boot.
+
+3.6 adds six more surfaces of the same kind: two comparisons, two local stores, one checklist and
+one preview. None of them grades anything, and none of them writes.
+
+`Compare releases…` in the `macOS version` card opens **Hardware compatibility by macOS release** —
+one row per graded device, one column per selectable release. Each cell is the label
+`verdicts.target_status` already returns for the device table, called with the same OCLP range, so
+the grid cannot disagree with the table above it. The engine is not called again.
+
+`Compare reports…` in the fields card picks a second `Report.json` and opens **Compare hardware
+reports**. Both files are read exactly as recorded on disk, and the diff keeps two kinds of change
+apart: a *hardware* change moves a device field such as `Processor Name`, `Device ID` or `PCI Path`;
+a *reading* change is the same hardware recorded with a different stored compatibility verdict. That
+split is the point — a verdict that differs between two reports can come from a different engine or
+database version rather than from this machine, and neither side is re-graded here.
+
+`Profiles…` stores local shortcuts: a name, a report path, an EFI folder, a release and an update
+stamp — five fields, and deliberately no serial, MLB, UUID or ROM value, so a profile cannot carry
+one machine's identity onto another. `Use` loads that report and selects the release the profile
+named as soon as the version options exist; a report that has moved is refused with its path in the
+error card. `Save current`, `Rename…` and `Remove` change the list in place, and the store is a
+local `profiles.json` written atomically.
+
+`History…` in the `Build progress` header opens **Build history**: the last 100 builds this app made
+on this machine, newest first, each with its timestamp, release, result, output folder, and whether
+that folder and its manifest are still where they were recorded. A moved or deleted folder prints
+`Folder missing` and its `Open folder` stays disabled — the row is never rewritten or pruned.
+`Succeeded`, `Failed` and `Cancelled` are written from the job outcome, once per build.
+
+**Before the first boot** is a fifth `Help` card: six advice steps — a spare drive, firmware
+settings, a way back, the picker, verbose boot, a recovery plan — and a `Copy the checklist` button.
+It starts nothing and has no boot action; the copied text ends with the same sentence the card
+prints.
+
+`Schema preview…` in the `Validation` header compares the open `config.plist` with the pinned
+OpenCore 1.0.8 sample and shows what a migration *would* do: keys missing from the file, keys not in
+the schema, keys whose type changed, and `ocvalidate`'s own verdict on the projected document. Only
+scalars and empty containers are projected — a missing array is listed, never invented — and `Save
+as text…` exports the review. Nothing is applied, and the note written after the dialog closes says
+so.
 
 Inside the client area the material is glass on a lit blue canvas: a frosted 200 px sidebar,
 translucent cards with a 1 px lighter top edge, fields a step below them, a blue gradient primary
@@ -385,8 +425,14 @@ the sidebar a `sidebarFill` gradient, over the silk.
 | S25 | Build EFI folder checks: required files and config paths verified | Build EFI | built |
 | S26 | Configure EFI history: unsaved edits, Changes… dialog open | Configure EFI | built |
 | S27 | Help: diagnostic bundle preview and save | Help | built |
+| S28 | Compatibility: release matrix dialog, every device against every release | Compatibility | built |
+| S29 | Compatibility: report comparison dialog, hardware and reading changes apart | Compatibility | built |
+| S30 | Compatibility: profiles dialog — local report / folder / release shortcuts | Compatibility | built |
+| S31 | Build: build-history dialog, with vanished folders named, not pruned | Build EFI | built |
+| S32 | Help: the first-boot checklist card and its copy button | Help | built |
+| S33 | Configure EFI: schema preview dialog, pinned-sample diff plus validator verdict | Configure EFI | built |
 
-Only S1–S11, S14, S16–S27 may be presented as current product. S12, S13 and S15 must
+Only S1–S11, S14, S16–S33 may be presented as current product. S12, S13 and S15 must
 be labelled *concept*. S14 and S16 follow host capability, not a platform guess: `Collect hardware`
 is drawn on Linux and Windows, `Read ACPI tables` on Linux only, and each is absent rather than
 disabled where its capability is missing. A macOS frame shows neither; a Windows frame shows Collect
@@ -396,6 +442,12 @@ only, because the Windows scan adopts the ACPI tables Hardware Sniffer exports.
 
 `Logs` is not a screen and gets no ID: it is the same log card at full height with the other cards
 removed, and the error card stays visible above it.
+
+S28–S31 and S33 are modal dialogs opened from a link or a card header, not pages in the sidebar; S32
+is a card on the existing `Help` page. Each is mounted only when it can answer: `Compare releases…`
+needs a finished analysis and a version picker, `Compare reports…` a report on disk, `Schema
+preview…` an open `config.plist`. `Profiles…` and `History…` are always available, because an empty
+list is a truthful answer about this machine.
 
 ---
 
@@ -566,7 +618,7 @@ The cell's tooltip is the status detail followed by the recommendation, e.g.
 earlier for native support.` Selecting another macOS version changes words, icons, row tints and
 tooltips; the `macOS support` column does not change. Icons repeat the text; they never replace it.
 
-The card hint becomes `Detected «n» devices from your hardware report.` The table's first row is
+The card hint becomes `Detected «n» device«s» from your hardware report.` The table's first row is
 selected automatically. `View details` (a chip in the card header) selects the first `Not supported`
 row, or the first row when none is unsupported, and opens the details card in the right column under
 the table. Its label becomes `Hide details` while open.
@@ -823,14 +875,14 @@ this table.
 | Page headings | `Make a macOS Installer` · `Hardware Compatibility` · `Build EFI Folder` · `Engine Log` · `Configure EFI` · `Settings` · `Help` · `Support BlackDream`, with the subtitles in §16 |
 | Search | placeholder `Search devices…`; keycap `Ctrl K` / `⌘ K`; lives in the `Detected devices` header and is shown only on `Compatibility` |
 | Theme control | `Settings > Appearance` combo `System` · `Light` · `Dark`; no theme button in the header |
-| Card titles | `macOS installer` · `USB drive` · `macOS version` · `Detected devices` · `Device details` · `Build progress` · `Engine log` · `Folder checks` · `config.plist` · `Sections` · `Keys` · `Selected entry` · `Validation` · `Appearance` · `About` · `Storage` · `Downloads and safety` · `Quick start` · `Keyboard shortcuts` · `Troubleshooting` · `Diagnostics` · `Support the project` · `Test on real hardware` · `Send a compatibility report` · `Share the app` · `Funding`; the setup and actions cards are untitled |
+| Card titles | `macOS installer` · `USB drive` · `macOS version` · `Detected devices` · `Device details` · `Build progress` · `Engine log` · `Folder checks` · `config.plist` · `Sections` · `Keys` · `Selected entry` · `Validation` · `Appearance` · `About` · `Storage` · `Downloads and safety` · `Quick start` · `Keyboard shortcuts` · `Troubleshooting` · `Diagnostics` · `Before the first boot` · `Support the project` · `Test on real hardware` · `Send a compatibility report` · `Share the app` · `Funding`; the setup and actions cards are untitled |
 | Card hints | §16 `card_hints` — the devices hint changes with state; `Appearance`, `Storage` and `Quick start` carry fixed hints |
 | Empty notes | `Load a report to see this machine's devices and what macOS does with them.` · `The engine rejected this report before grading any device.` |
 | Field labels | `Hardware report (Report.json)` · `ACPI tables folder` · `Output folder` · `EFI folder` |
 | Field button | `Browse…` |
-| Link buttons | `Collect hardware` · `Read ACPI tables` · `View details` · `Hide details` · `Copy details` · `Show engine verdict` |
-| Link tooltips | `Scan this machine and write a Report.json` · `Scan this machine with Hardware Sniffer; downloads and runs the verified tool` · `Read the firmware tables from this machine; asks for administrator rights` |
-| Buttons | `Check compatibility` · `Build EFI folder` · `Cancel` · `Open EFI folder` · `Save log…` · `Run checks` · `Verify manifest` · `Save report…` · `Download installer` · `Download again` · `Refresh` · `Write installer` · `Save` · `Validate` · `Validate again` · `Generate serials` · `Open config…` · `Undo` · `Redo` · `Changes…` · `Revert` · `Show folder` · `Add key` · `Add item` · `Remove` · `Up` · `Down` · `Apply` · `Edit…` · `Copy environment info` · `Save diagnostic bundle…` |
+| Link buttons | `Collect hardware` · `Read ACPI tables` · `View details` · `Hide details` · `Copy details` · `Show engine verdict` · `Compare reports…` · `Profiles…` · `Compare releases…` |
+| Link tooltips | `Scan this machine and write a Report.json` · `Scan this machine with Hardware Sniffer; downloads and runs the verified tool` · `Read the firmware tables from this machine; asks for administrator rights` · `Compare this report with another one, without re-grading either` · `Save this machine's report path and EFI folder as a local profile` · `See every graded device against every selectable macOS release` |
+| Buttons | `Check compatibility` · `Build EFI folder` · `Cancel` · `Open EFI folder` · `Save log…` · `Run checks` · `Verify manifest` · `Save report…` · `Download installer` · `Download again` · `Refresh` · `Write installer` · `Save` · `Validate` · `Validate again` · `Generate serials` · `Open config…` · `Undo` · `Redo` · `Changes…` · `Revert` · `Show folder` · `Add key` · `Add item` · `Remove` · `Up` · `Down` · `Apply` · `Edit…` · `Copy environment info` · `Save diagnostic bundle…` · `History…` · `Schema preview…` · `Copy the checklist` · `Save current` · `Use` · `Rename…` · `Open folder` · `Copy history` · `Save as text…` · `Copy` |
 | Table headers | `Device` · `Class` · `macOS support` · `Status` — exactly four columns |
 | Class labels | `CPU` `GPU` `Audio` `Ethernet` `Wi-Fi` `Storage` `USB` `Bluetooth` `SD card` `Display` `Biometric` |
 | Status words | `Supported` · `Limited support` · `Not supported` · `Not graded` |
@@ -845,10 +897,11 @@ this table.
 | Log tools | `Copy the log` · `Save log…` |
 | Error card | `code: <code>` · `This machine cannot run macOS as configured.` (italic suffix, only the two unrecoverable fatals) |
 | Settings view | `Theme` · `Light` · `Dark` · `Artifact cache` · `Runtime tools` · `BlackDream <version>` · `MIT` / `BSD-3-Clause` about copy · `Pinned SHA-256` · `Folder only` · `No account` |
-| Help view | quick-start titles and bodies · shortcut actions · `Troubleshooting` copy · `Copy environment info` · `Save diagnostic bundle…` · `Nothing has been copied or saved.` · `Copied to the clipboard.` |
+| Help view | quick-start titles and bodies · shortcut actions · `Troubleshooting` copy · `Copy environment info` · `Save diagnostic bundle…` · `Nothing has been copied or saved.` · `Copied to the clipboard.` · the `Before the first boot` card: six step titles and bodies in §16, `Advice for the first attempt. BlackDream never boots, installs or writes firmware.`, `Copy the checklist`, `Nothing has been copied.` and the copied text's closing `This is advice. BlackDream has no boot button and writes no firmware.` |
 | Donate view | `Support the project` summary · `Test on real hardware` · `Send a compatibility report` · `Share the app` · `Funding` · `Donation links are not open yet.` |
 | Installer view | `Choose a macOS version` · `macOS <name> <version>` / `macOS Tahoe 26 · latest` · `Not downloaded yet.` · `About 1 GB. A dropped connection resumes where it stopped.` · `Verified · <size>` · `Download installer` / `Download again` · `Write installer` · `Refresh` · USB placeholder and notes in §16 |
-| Configure EFI view | Header chips `Not validated` · `Valid` · `Checking…` · `«n» issue(s)` · `OpenCore «version»`; file card status `No built config.plist yet.` · `config.plist is open` · `Unsaved changes` · `Changed on disk.` · `Changed on disk; unsaved edits here.` · `The config.plist could not be read.`; header buttons `Open config…` · `Validate` · `Save`; card buttons `Undo` · `Redo` · `Changes…` · `Generate serials` · `Revert` · `Show folder`; rail `Sections` · `All keys`; key search `Search keys…`; tree headers `Key` · `Value` · `Type`; inspector `Nothing selected` · `Select a key to inspect it.` · `No config.plist is open.` · `On` · `Apply` · `Edit…`; validation `Not checked yet.` · `Checking…` · `Valid` · `«n» issue(s)` and a clickable issue list that says `Select an issue to go to the key it names.`; the toolbar, notes and dialog copy are in §15 and §16 |
+| Configure EFI view | Header chips `Not validated` · `Valid` · `Checking…` · `«n» issue(s)` · `OpenCore «version»`; file card status `No built config.plist yet.` · `config.plist is open` · `Unsaved changes` · `Changed on disk.` · `Changed on disk; unsaved edits here.` · `The config.plist could not be read.`; header buttons `Open config…` · `Validate` · `Save`; card buttons `Undo` · `Redo` · `Changes…` · `Generate serials` · `Revert` · `Show folder`; rail `Sections` · `All keys`; key search `Search keys…`; tree headers `Key` · `Value` · `Type`; inspector `Nothing selected` · `Select a key to inspect it.` · `No config.plist is open.` · `On` · `Apply` · `Edit…`; validation `Not checked yet.` · `Checking…` · `Valid` · `«n» issue(s)` and a clickable issue list that says `Select an issue to go to the key it names.` · `Schema preview…` in the `Validation` header, disabled until a document is open; the toolbar, notes and dialog copy are in §15 and §16 |
+| Comparison, profile, history and preview dialogs | `Hardware compatibility by macOS release` · `Compare hardware reports` · `Profiles` · `Build history` · `Schema preview`, with the headers, notes, warnings and boundaries in §16 `read_only_dialogs` and `configure.schema_preview`. Each closes with `Copy` or `Copy history` and `Save as text…`; none of them has an Apply, Migrate, Boot or Write action |
 | Dialogs | `Engine verdict`, `Write installer?` / `Installer written`, `Changes since the file was opened`, `Save a diagnostic bundle`, and the editor's own: `Remove from config.plist?`, `Overwrite config.plist?`, `Edit data` / `Edit text`, `Add a key`, `Generate SMBIOS serials`, `Replace SMBIOS values?`. Validation is inline on the page, never a dialog. Settings and About are views in 2.1 |
 
 `<step>` is either a §16.2 engine stage name or a §16 job name — never a string invented to fit the
@@ -914,8 +967,11 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
 - A theme button (sun / moon) in the header. The theme control is the combo in
   `Settings > Appearance`, and `Toggle Theme` remains in the `View` menu.
 - A Settings or About modal over the dashboard. 2.1 replaced both with the Settings view; the only
-  modals left are `Engine verdict`, the installer write confirmation and its completion notice, and
-  the configure editor's own confirmations and value editors (§15).
+  modals left are `Engine verdict`, the installer write confirmation and its completion notice, the
+  configure editor's own confirmations and value editors, and the five read-only dialogs of 3.6
+  (`Hardware compatibility by macOS release`, `Compare hardware reports`, `Profiles`, `Build
+  history`, `Schema preview`) plus the editor's `Changes since the file was opened` and the bundle
+  saver (§15).
 - A Donate page with a live payment button, card-number fields, supporter tiers or a licence key.
   Funding is not open; the `Funding` card says so and carries no button. When a real donation URL
   exists, the card gains one button and §16 gains its label in the same change.
@@ -976,6 +1032,23 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
   `Open config…`, and a chosen file loads by the same code path as the built one.
 - A macOS installer boot button or an "Install macOS" action. Writing the files is the whole job;
   the USB is booted on the target PC.
+- A boot, restart, NVRAM or firmware action on the first-boot checklist. It is six advice rows and a
+  copy button; the copied text closes with the sentence that says so.
+- A release matrix that re-grades, or a device table with a fifth "matrix" column. 3.6's grid is the
+  same `verdicts.target_status` answer laid out per release, and the dialog repeats that it is not a
+  boot test.
+- A report comparison that says one side is newer, better or re-checked. It diffs what the two files
+  recorded and keeps a hardware change apart from a recorded reading change; neither is re-analysed.
+- A profile that carries a serial, MLB, UUID or ROM value, or one that silently restores a folder
+  the user did not record. Five fields, in `profiles.json`, and a missing report is refused with its
+  path.
+- A build history that deletes, hides or rewrites a row whose folder has gone. `Folder missing` is
+  the honest answer, and `Open folder` stays disabled.
+- A `Migrate`, `Apply`, `Fix` or `Repair` button in the schema preview. It shows the pinned-schema
+  diff and `ocvalidate`'s verdict on a projection, and writes nothing; the note after it closes says
+  the file is untouched.
+- An invented array, dict or sample value in a migration projection. A container the file does not
+  have is listed as missing, never filled in.
 - A password field inside the app's frame, anywhere, ever. The only authentication surface is
   polkit's own window, drawn by the desktop outside this window.
 - Free-text entry in the three path fields, or a typed file path anywhere.
@@ -1266,7 +1339,7 @@ mockup must not invent them.
 
 **S11 About.** The About card inside Settings, described above. It is no longer a modal.
 
-**S18 Help.** A full view with four cards. `Quick start` is a six-row list with 28 px tiles:
+**S18 Help.** A full view with five cards. `Quick start` is a six-row list with 28 px tiles:
 `Make the installer`, `Load a report`, `Choose a release`, `Check compatibility`, `Build the folder`,
 `Configure the EFI`; each row is a 13 px title over a 12 px muted sentence, and the hint reads
 `Six steps across the three sections in the sidebar.` `Keyboard shortcuts` is a two-column list of
@@ -1285,6 +1358,17 @@ changes from `Nothing has been copied or saved.` to `Copied to the clipboard.` o
 monospace preview of the exact text that will be written, and `Save bundle…` writes a `.txt` or
 `.zip`. `Report.json` is included only when the user ticks it. No external links.
 
+**S32 First-boot checklist.** The fifth `Help` card, full width below the two rows, titled
+`Before the first boot` with the hint `Advice for the first attempt. BlackDream never boots,
+installs or writes firmware.` Its six `_InfoRow`s are the six `first_boot.STEPS` in order — `Use a
+spare USB drive`, `Check firmware settings`, `Keep a way back`, `Expect the OpenCore picker`, `Use
+verbose boot for the first run`, `Plan recovery` — each with a 28 px tile in `usb`, `gear`, `clock`,
+`logs`, `book`, `shield`. The card ends with an `outline` `Copy the checklist` button beside a muted
+note that starts `Nothing has been copied.` and becomes `Copied to the clipboard.`. The clipboard
+text is the six title/body pairs separated by blank lines and ends with `This is advice. BlackDream
+has no boot button and writes no firmware.` There is no button here that boots, restarts, writes
+NVRAM or touches firmware, and a mockup must not add one.
+
 **S19 Donate.** A full view. `Support the project` runs full width: `BlackDream is free and MIT
 licensed. It has no account, no telemetry and no ads.` Below it is a 2 × 2 grid of cards, each with
 a 28 px icon tile in its header: `Test on real hardware` (`monitor`), `Send a compatibility report`
@@ -1292,6 +1376,86 @@ a 28 px icon tile in its header: `Test on real hardware` (`monitor`), `Send a co
 money. `Funding` says `Donation links are not open yet. No payment button is shown until there is a
 page behind it.` — and there is no payment button, field, tier or licence key anywhere on the view.
 No funding URL exists yet; a mockup that invents one is wrong.
+
+**S28 Release matrix.** `Compare releases…` sits alone in a row under the version combo, objectName
+`link`, and is disabled until an analysis has finished and the picker has options. The dialog is
+920 × 500: a `rowTitle` heading `«n» device«s» across «n» release«s»`, one wrapped `rowBody` line that
+leads with *Each cell is the same status the device table would show for that release.* and ends
+with `release_matrix.BOUNDARY`, then a flat `configTree` table — `Device` fixed at 200 px, `Class`
+fixed at 76 px, one 104 px column per selectable release labelled with the release name; the grid
+scrolls sideways per pixel rather than eliding a device name. Cells carry
+`verdicts.target_status`'s label in the same `_STATUS_TONE` colour the `Status` column of the device
+table uses — a 15 %-alpha background wash alone cannot carry a verdict — and only `unsupported`
+(`rowFailBg`) and `limited` (`rowWarnBg`) are tinted; `supported` and `unknown` stay on the row
+background, because an absence is not a warning. A cell tooltip is the status detail plus its
+recommendation. With no
+graded device the table shows one inert row, `No graded device to compare.`. `Copy` and
+`Save as text…` export the same grid as tab-separated lines and repeat the boundary last. There is no
+re-grade, no checkbox and no Apply: the dialog cannot change what the engine said.
+
+**S29 Report comparison.** `Compare reports…` is a `link` in the fields card below the three pickers,
+disabled with no report on disk or while a job runs. `QFileDialog.getOpenFileName` starts in the
+current report's folder with `Hardware reports (Report.json *.json);;All files (*)`. Both files are
+read as stored JSON — never re-analysed — and a file that is not a JSON object is refused by the red
+error card with `One of the reports could not be read as a JSON object.`, not by a dialog that shows
+half a comparison. The 860 × 500 dialog names both sides (`«before» → «after»`), counts
+`«n» hardware change«s» · «n» recorded compatibility change«s» · «n» unchanged` — each noun agreeing
+with its own number — prints `report_compare.BOUNDARY`, and lists changes under `Change` `Section`
+`Device` `Detail`. Device names are the report's own keys, the same strings the `Detected devices`
+table shows, and every device a report records is compared, graded or not: a freshly collected report
+carries no verdict at all, and hardware that was never graded is still hardware. The four
+kinds stay visibly different: `Added` and `Removed` are devices, `Hardware` is a change in one of the
+identity and topology fields (`Processor Name`, `Manufacturer`, `Vendor`, `Device ID`,
+`Subsystem ID`, `Subsystem`, `PCI Path`, `Device Type`), and `Reading` is the same hardware whose
+stored compatibility verdict differs. `Copy` and `Save as text…` write the same split, with
+`Devices before: «n»` and `Devices after: «n»` in the header and the boundary last. No row is marked
+better or worse, and neither report is re-graded.
+
+**S30 Profiles.** `Profiles…` is the second `link` in the fields card and is enabled while idle even
+with no report, because an empty list is a truthful answer. The 800 × 460 dialog shows
+`Local profiles on this machine`, the hint that a profile stores no serial, MLB, UUID or ROM value,
+and a `configTree` table of `Name` `Report` `Release` `EFI folder` with the two paths as tooltips.
+`Save current` prompts `Save a profile` / `Profile name` and writes the report path, the current EFI
+folder, the selected release name and a local ISO timestamp; `Rename…` refuses a name already taken;
+`Remove` asks `Remove this profile?` and says the report and folder stay on disk. `Use` is the only
+`primary` button and is disabled with no selection; double-clicking a row is the same action. The
+muted note reports `Saved «name».` / `Renamed «before» to «after».` / `Removed «name».` and starts as
+`Nothing has been copied or saved.` Applying a profile sets a report and then the release once the
+version options exist; a profile whose report has moved is refused with its path and changes nothing
+else. The store is `profiles.json` in the state folder, written atomically, five fields per record —
+a sixth field carrying an identity value is a bug, not a feature.
+
+**S31 Build history.** `History…` is a `chip` in the `Build progress` card header, beside the step
+label. The 900 × 480 dialog lists `Builds recorded on this machine`, newest first, under
+`When` `Release` `Result` `Output` `Folder` `Manifest`. `When` is the recorded instant in local
+`YYYY-MM-DD HH:MM`; `Result` is the stored `succeeded` / `failed` / `cancelled` capitalised; `Folder`
+re-checks the path on screen and answers `Folder present` or `Folder missing`; `Manifest` answers
+`Recorded`, `Missing` or `Not recorded` after looking both inside the build root and beside it. A
+vanished folder is *shown* as missing — the row is never rewritten, pruned or hidden, and opening it
+is disabled rather than attempted. `Open folder` needs a live folder; `Copy history` and
+`Save as text…` export one tab-separated line per build. With nothing recorded the table shows one
+inert row, `No builds have been recorded yet.` Writes are capped at 100 entries in
+`build-history.jsonl`, and a history that cannot be written is a warning in the engine log, never a
+failed build.
+
+**S33 Schema preview.** `Schema preview…` is an `outline` button in the `Validation` card header,
+beside `Validate again`, and is disabled without an open document or while the config runner is busy.
+It starts the job `Previewing a schema migration`, shows the indeterminate bar with
+`Comparing config.plist with the pinned OpenCore sample…`, and puts the document through
+`schema_preview.compare` against the pinned OpenCore 1.0.8 sample: keys the sample has and the file
+does not, keys the file has and the schema does not, and keys whose plist type differs. The 880 × 520
+dialog reads `Pinned schema: OpenCore «version»`, states that this is a reading and not a repair,
+counts the three finding kinds, and lists the findings themselves under `Change` `Key` `Current`
+`Pinned`, so the counts line and the rows can never disagree. `Key` is fixed to the width of the
+longest path, because an elided key is a different key; `Current` and `Pinned` share what is left.
+A projection
+is built by copying only scalars and empty containers, so a missing array or dict is named rather
+than invented; if it adds anything, `ocvalidate` runs on that projection in the worker and its own
+summary and lines appear below the table, unchanged and unrecounted. If the projection adds nothing,
+the line reads `Validator not run: the projection adds no keys.` `Copy` and `Save as text…` export
+the review, and the caveat and boundary lines are part of the text. Closing the dialog writes
+`Schema preview closed. Nothing was written to config.plist.` into the config note. There is no
+`Migrate`, `Apply` or `Fix` button anywhere in it, and the file on disk is untouched.
 
 **S12 Device & kext overrides** *(concept only)*. Appears between S3 and Build. Same window; the
 Devices table gains a per-kext checkbox column and a second table `Kexts` (name, version range, why
@@ -1457,6 +1621,7 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "Keyboard shortcuts",
     "Troubleshooting",
     "Diagnostics",
+    "Before the first boot",
     "Support the project",
     "Test on real hardware",
     "Send a compatibility report",
@@ -1465,7 +1630,7 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
   ],
   "card_hints": [
     "No report loaded yet.",
-    "Detected «n» devices from your hardware report.",
+    "Detected «n» device«s» from your hardware report.",
     "No devices were graded from this report.",
     "Step, transfer and timing from the engine.",
     "Building your OpenCore EFI folder.",
@@ -1477,7 +1642,8 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "Apple's recovery image for the release you pick, verified chunk by chunk against Apple's signed chunklist.",
     "A mounted FAT32 volume on a USB bus. BlackDream copies files; it never formats the drive.",
     "Edit the file this app built. Nothing is written until you save.",
-    "Select a value to edit it. Keys this build does not know are kept as they are."
+    "Select a value to edit it. Keys this build does not know are kept as they are.",
+    "Advice for the first attempt. BlackDream never boots, installs or writes firmware."
   ],
   "empty_notes": [
     "Load a report to see this machine's devices and what macOS does with them.",
@@ -1523,12 +1689,18 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
       "View details",
       "Hide details",
       "Copy details",
-      "Show engine verdict"
+      "Show engine verdict",
+      "Compare reports…",
+      "Profiles…",
+      "Compare releases…"
     ],
     "tooltips": [
       "Scan this machine and write a Report.json",
       "Scan this machine with Hardware Sniffer; downloads and runs the verified tool",
-      "Read the firmware tables from this machine; asks for administrator rights"
+      "Read the firmware tables from this machine; asks for administrator rights",
+      "Compare this report with another one, without re-grading either",
+      "Save this machine's report path and EFI folder as a local profile",
+      "See every graded device against every selectable macOS release"
     ]
   },
   "buttons": [
@@ -1563,7 +1735,17 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "Apply",
     "Edit…",
     "Copy environment info",
-    "Save diagnostic bundle…"
+    "Save diagnostic bundle…",
+    "History…",
+    "Schema preview…",
+    "Copy the checklist",
+    "Save current",
+    "Use",
+    "Rename…",
+    "Open folder",
+    "Copy history",
+    "Save as text…",
+    "Copy"
   ],
   "log_filter": [
     "Info and above",
@@ -1857,7 +2039,8 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "Writing the installer",
     "Finding USB drives",
     "Validating config.plist",
-    "Generating SMBIOS serials"
+    "Generating SMBIOS serials",
+    "Previewing a schema migration"
   ],
   "scan_stages": [
     "Gathering PCI devices",
@@ -2412,6 +2595,57 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
         "detail": "Serial: «serial»\nMLB: «mlb»\nUUID: «uuid»\nROM: «rom»",
         "accept": "Replace"
       }
+    },
+    "schema_preview": {
+      "button": "Schema preview…",
+      "tooltip": "Compare this file with the pinned OpenCore sample before any migration",
+      "job": "Previewing a schema migration",
+      "running": "Comparing config.plist with the pinned OpenCore sample…",
+      "closed": "Schema preview closed. Nothing was written to config.plist.",
+      "title": "Schema preview",
+      "heading": "Pinned schema: OpenCore «version»",
+      "hint": "This is a reading, not a repair. Nothing here is applied, and config.plist is not written.",
+      "counts": "Missing: «n» · Extra: «n» · Different types: «n»",
+      "headers": [
+        "Change",
+        "Key",
+        "Current",
+        "Pinned"
+      ],
+      "kinds": [
+        "missing",
+        "extra",
+        "type"
+      ],
+      "kind_display": "«kind»",
+      "empty": [
+        "None",
+        "No differences."
+      ],
+      "validator_not_run": "Validator not run: the projection adds no keys.",
+      "validator_ran": "ocvalidate on the projected config: «summary»",
+      "copy": "Copy",
+      "save": "Save as text…",
+      "save_title": "Save the schema preview",
+      "save_failed": "The preview could not be saved",
+      "filter": "Text files (*.txt);;All files (*)",
+      "export": {
+        "header": "BlackDream schema preview",
+        "sections": [
+          "Missing from this config",
+          "Not in the pinned schema",
+          "Different types"
+        ],
+        "marks": [
+          "[MISSING] «key» = «value»",
+          "[EXTRA] «key»",
+          "[TYPE] «key»: «current» -> «schema»"
+        ],
+        "ocvalidate": "ocvalidate on the projected config",
+        "not_run": "Not run: the projection adds no keys.",
+        "caveat": "A key that is missing from this config may be optional or unnecessary for this machine.",
+        "boundary": "This preview changes nothing. A migration would need a review and a save."
+      }
     }
   },
   "settings": {
@@ -2468,7 +2702,8 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
       "Quick start",
       "Keyboard shortcuts",
       "Troubleshooting",
-      "Diagnostics"
+      "Diagnostics",
+      "Before the first boot"
     ],
     "quick_start_hint": "Six steps across the three sections in the sidebar.",
     "quick_start": [
@@ -2617,6 +2852,46 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
           "contains hardware details; off unless you choose it"
         ]
       }
+    },
+    "first_boot": {
+      "title": "Before the first boot",
+      "hint": "Advice for the first attempt. BlackDream never boots, installs or writes firmware.",
+      "steps": [
+        {
+          "title": "Use a spare USB drive",
+          "body": "Write the installer to a stick you can erase. Leave the machine's own disk out of the process until macOS runs.",
+          "icon": "usb"
+        },
+        {
+          "title": "Check firmware settings",
+          "body": "Turn Secure Boot off or enrol OpenCore the way your board's guide describes, and note every setting you change.",
+          "icon": "gear"
+        },
+        {
+          "title": "Keep a way back",
+          "body": "Know how to open the firmware boot menu and start the existing system before OpenCore is in the boot path.",
+          "icon": "clock"
+        },
+        {
+          "title": "Expect the OpenCore picker",
+          "body": "The picker lists the installer and any existing entries. If nothing appears, folder checks are the first place to look.",
+          "icon": "logs"
+        },
+        {
+          "title": "Use verbose boot for the first run",
+          "body": "Add -v to the boot arguments when a run stops early, so the last line names the driver that failed.",
+          "icon": "book"
+        },
+        {
+          "title": "Plan recovery",
+          "body": "A second machine and a working macOS installer are the recovery plan. BlackDream never boots, installs or writes firmware.",
+          "icon": "shield"
+        }
+      ],
+      "copy": "Copy the checklist",
+      "idle": "Nothing has been copied.",
+      "copied": "Copied to the clipboard.",
+      "boundary": "This is advice. BlackDream has no boot button and writes no firmware."
     }
   },
   "donate": {
@@ -2645,6 +2920,153 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
         "icon": "heart"
       }
     ]
+  },
+  "read_only_dialogs": {
+    "release_matrix": {
+      "title": "Hardware compatibility by macOS release",
+      "heading": "«n» device«s» across «n» release«s»",
+      "headers": [
+        "Device",
+        "Class"
+      ],
+      "cell": "Each cell is the same status the device table would show for that release. ",
+      "boundary": "These statuses use the same compatibility ranges as the device table. They do not test firmware, hardware or whether macOS boots.",
+      "empty": "No graded device to compare.",
+      "copy": "Copy",
+      "save": "Save as text…",
+      "save_title": "Save the release comparison",
+      "save_failed": "The comparison could not be saved",
+      "filter": "Text files (*.txt);;All files (*)",
+      "export_header": "BlackDream - Hardware compatibility by macOS release",
+      "export_column": "«name»: Supported «n», Limited support «n», Not supported «n», Not graded «n»"
+    },
+    "report_compare": {
+      "title": "Compare hardware reports",
+      "heading": "«before» → «after»",
+      "counts": "«n» hardware change«s» · «n» recorded compatibility change«s» · «n» unchanged",
+      "boundary": "A recorded compatibility change can come from a different engine or database version, not from this machine. Neither side was re-graded.",
+      "headers": [
+        "Change",
+        "Section",
+        "Device",
+        "Detail"
+      ],
+      "kinds": {
+        "added": "Added",
+        "removed": "Removed",
+        "hardware": "Hardware",
+        "reading": "Reading"
+      },
+      "hardware_fields": [
+        "Processor Name",
+        "Manufacturer",
+        "Vendor",
+        "Device ID",
+        "Subsystem ID",
+        "Subsystem",
+        "PCI Path",
+        "Device Type"
+      ],
+      "empty": [
+        "None",
+        "No differences."
+      ],
+      "file_title": "Compare hardware reports",
+      "file_filter": "Hardware reports (Report.json *.json);;All files (*)",
+      "unreadable": "One of the reports could not be read as a JSON object.",
+      "copy": "Copy",
+      "save": "Save as text…",
+      "save_title": "Save the report comparison",
+      "save_failed": "The comparison could not be saved",
+      "filter": "Text files (*.txt);;All files (*)",
+      "export_header": "BlackDream report comparison",
+      "export_counts": [
+        "Devices before: «n»",
+        "Devices after: «n»",
+        "Hardware changes: «n»",
+        "Recorded compatibility changes: «n»",
+        "Unchanged: «n»"
+      ]
+    },
+    "profiles": {
+      "title": "Profiles",
+      "heading": "Local profiles on this machine",
+      "hint": "A profile keeps a report path, an EFI folder and a release. It stores no serial, MLB, UUID or ROM value, so a profile cannot carry an identity to another machine.",
+      "headers": [
+        "Name",
+        "Report",
+        "Release",
+        "EFI folder"
+      ],
+      "fields": [
+        "name",
+        "report",
+        "efi_folder",
+        "release",
+        "updated"
+      ],
+      "idle": "Nothing has been copied or saved.",
+      "save_current": "Save current",
+      "use": "Use",
+      "rename": "Rename…",
+      "remove": "Remove",
+      "save_prompt": "Save a profile",
+      "rename_prompt": "Rename a profile",
+      "name_label": "Profile name",
+      "no_report_title": "No report loaded",
+      "no_report": "Load a report before saving a profile.",
+      "duplicate_title": "A profile with that name already exists",
+      "duplicate": "Choose another name, or remove that profile first.",
+      "remove_title": "Remove this profile?",
+      "remove_text": "Remove «name»? The report and EFI folder stay on disk.",
+      "saved": "Saved «name».",
+      "renamed": "Renamed «before» to «after».",
+      "removed": "Removed «name».",
+      "write_failed": "The profiles could not be saved",
+      "missing_report": "The profile's report could not be found: «path»",
+      "store": "profiles.json"
+    },
+    "history": {
+      "title": "Build history",
+      "heading": "Builds recorded on this machine",
+      "hint": "A build folder can be moved or deleted after the fact. The history says what was recorded, not that the folder is still there.",
+      "headers": [
+        "When",
+        "Release",
+        "Result",
+        "Output",
+        "Folder",
+        "Manifest"
+      ],
+      "statuses": [
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "folder_states": [
+        "Folder present",
+        "Folder missing"
+      ],
+      "manifest_states": [
+        "Recorded",
+        "Missing",
+        "Not recorded"
+      ],
+      "empty": [
+        "None",
+        "No builds have been recorded yet."
+      ],
+      "open_folder": "Open folder",
+      "copy": "Copy history",
+      "save": "Save as text…",
+      "save_title": "Save the build history",
+      "save_failed": "The history could not be saved",
+      "filter": "Text files (*.txt);;All files (*)",
+      "export_header": "BlackDream build history",
+      "write_failed": "The build history could not be written: «detail»",
+      "store": "build-history.jsonl",
+      "max_entries": 100
+    }
   }
 }
 ```

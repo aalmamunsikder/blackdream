@@ -1,6 +1,6 @@
 # BlackDream
 
-**Beta 2 · version `0.9.0-beta.2`** (package version `0.9.0b2`)
+**Beta 3 · version `0.9.0-beta.3`** (package version `0.9.0b3`)
 
 An OpenCore EFI builder you can run without a terminal. BlackDream takes a hardware
 report, tells you whether the machine can run the macOS release you picked, builds the
@@ -17,11 +17,13 @@ about.
 | Section | What it does |
 | --- | --- |
 | **Installer** | Picks a macOS release (High Sierra 10.13 through Tahoe 26), downloads Apple's recovery image, verifies every chunk against Apple's signed chunklist, and copies the image plus a built EFI folder onto a mounted FAT32 USB drive you selected. |
-| **Build EFI** | Loads or collects a hardware report, shows per-device verdicts for the selected release, and generates the EFI folder through the OpenCore engine with live stages, transfer rates and cancellation. Tabs: `Compatibility`, `Build`, `Logs`. |
-| **Configure EFI** | Opens the built `config.plist` as a key tree, edits it in memory, adds/removes/moves entries, inserts preset ACPI and Kernel patches, edits `data` values as hex or printable text, runs OpenCore's own `ocvalidate`, generates serials with `macserial`, and writes only when you press `Save`. |
+| **Build EFI** | Loads or collects a hardware report, shows per-device verdicts for the selected release, and generates the EFI folder through the OpenCore engine with live stages, transfer rates and cancellation. Tabs: `Compatibility`, `Build`, `Logs`. Read-only helpers beside the table: `Compare releases…` lays every graded device against every selectable release, `Compare reports…` diffs two reports and keeps a hardware change apart from a changed reading, `Profiles…` recalls a report, folder and release on this machine, and `History…` lists what was built here, including whether the folder is still there. |
+| **Configure EFI** | Opens the built `config.plist` as a key tree, edits it in memory, adds/removes/moves entries, inserts preset ACPI and Kernel patches, edits `data` values as hex or printable text, runs OpenCore's own `ocvalidate`, generates serials with `macserial`, and writes only when you press `Save`. `Schema preview…` shows what a migration to the pinned schema would add or change and what `ocvalidate` says about that projection; it applies nothing. |
 
 `Settings`, `Help` and `Donate` sit at the bottom of the sidebar. `Help` has a
-`Copy environment info` button whose text is what a bug report should carry.
+`Copy environment info` button whose text is what a bug report should carry, and a
+`Before the first boot` checklist of six advice rows you can copy — BlackDream has no
+boot button and writes no firmware.
 
 ## What this beta has actually been run on
 
@@ -40,7 +42,7 @@ records how many tests passed for this specific build.
 Unpack the release archive and run the binary inside:
 
 ```sh
-tar -xzf BlackDream-0.9.0-beta.2-linux-amd64.tar.gz
+tar -xzf BlackDream-0.9.0-beta.3-linux-amd64.tar.gz
 ./BlackDream/BlackDream
 ```
 
@@ -49,15 +51,15 @@ launcher on `PATH`, writes the desktop entry and icons, and installs the ACPI he
 below as root, which the archive cannot do:
 
 ```sh
-sudo apt install ./blackdream_0.9.0b2_amd64.deb     # Debian, Ubuntu
-sudo dnf install ./blackdream-0.9.0b2-1.x86_64.rpm  # Fedora, openSUSE
+sudo apt install ./blackdream_0.9.0b3_amd64.deb     # Debian, Ubuntu
+sudo dnf install ./blackdream-0.9.0b3-1.x86_64.rpm  # Fedora, openSUSE
 blackdream
 ```
 
 Or install the wheel into a Python 3.11+ environment with PySide6 available:
 
 ```sh
-pip install blackdream-0.9.0b2-py3-none-any.whl
+pip install blackdream-0.9.0b3-py3-none-any.whl
 blackdream
 ```
 

@@ -47,16 +47,18 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProxyStyle, QPushButton,
-    QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate,
-    QStyleOptionViewItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+    QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProxyStyle,
+    QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle,
+    QStyledItemDelegate, QStyleOptionViewItem, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget)
 
 from ocengine import paths
 from ocengine import runtime
 from ocengine.fatal import EngineError
 
 from blackdream import RELEASE_LABEL, __version__, hardware
+from blackdream.core import build_history
 from blackdream.core import config_diff
 from blackdream.core import config_editor
 from blackdream.core import config_presets
@@ -64,7 +66,13 @@ from blackdream.core import crash_log
 from blackdream.core import diagnostics
 from blackdream.core import efi_manifest
 from blackdream.core import efi_preflight
+from blackdream.core import first_boot
 from blackdream.core import installer as installer_core
+from blackdream.core import machine_profiles
+from blackdream.core import release_matrix
+from blackdream.core import report_compare
+from blackdream.core import schema_preview
+from blackdream.core import state_store
 from blackdream.core import validation_assistant
 from blackdream.core import verdicts
 from blackdream.core.job_runner import (
@@ -421,6 +429,9 @@ class MainWindow(QMainWindow):
         self._chain: list[_Step] = []
         self._result_dir: Path | None = None
         self._report_path: Path | None = None
+        self._pending_release = ""
+        self._build_release = ""
+        self._build_recorded = True
         self._settings = QSettings("BlackDream", "BlackDream")
         stored_output = str(self._settings.value("build/last_output", "") or "")
         if stored_output and Path(stored_output).is_dir():
@@ -811,6 +822,23 @@ class MainWindow(QMainWindow):
         machine.addWidget(self.acpi_button)
         machine.addStretch(1)
         files.addLayout(machine)
+        extra_links = QHBoxLayout()
+        extra_links.setContentsMargins(4, 0, 0, 0)
+        extra_links.setSpacing(14)
+        self.compare_reports_button = QPushButton("Compare reports\u2026")
+        self.compare_reports_button.setObjectName("link")
+        self.compare_reports_button.setToolTip(
+            "Compare this report with another one, without re-grading either")
+        self.compare_reports_button.clicked.connect(self._on_compare_reports)
+        self.profiles_button = QPushButton("Profiles\u2026")
+        self.profiles_button.setObjectName("link")
+        self.profiles_button.setToolTip(
+            "Save this machine's report path and EFI folder as a local profile")
+        self.profiles_button.clicked.connect(self._on_profiles)
+        extra_links.addWidget(self.compare_reports_button)
+        extra_links.addWidget(self.profiles_button)
+        extra_links.addStretch(1)
+        files.addLayout(extra_links)
 
         self.version_card = QFrame()
         self.version_card.setObjectName("groupCard")
@@ -859,6 +887,17 @@ class MainWindow(QMainWindow):
         summary_layout.addWidget(self.summary_icon, 0, Qt.AlignTop)
         summary_layout.addLayout(summary_copy, 1)
         version.addWidget(self.summary_frame)
+        compare_row = QHBoxLayout()
+        compare_row.setContentsMargins(2, 0, 0, 0)
+        self.compare_releases_button = QPushButton("Compare releases\u2026")
+        self.compare_releases_button.setObjectName("link")
+        self.compare_releases_button.setToolTip(
+            "See every graded device against every selectable macOS release")
+        self.compare_releases_button.setEnabled(False)
+        self.compare_releases_button.clicked.connect(self._on_compare_releases)
+        compare_row.addWidget(self.compare_releases_button)
+        compare_row.addStretch(1)
+        version.addLayout(compare_row)
         self._set_summary_icon("empty")
 
         self.actions_card = QFrame()
@@ -1036,6 +1075,12 @@ class MainWindow(QMainWindow):
         self.step_label = QLabel("Not started")
         self.step_label.setObjectName("stepLabel")
         self.progress_card.set_header_widget(self.step_label)
+        self.history_button = QPushButton("History\u2026")
+        self.history_button.setObjectName("chip")
+        self.history_button.setToolTip(
+            "Every build this app recorded on this machine")
+        self.history_button.clicked.connect(self._on_build_history)
+        self.progress_card.add_header_widget(self.history_button)
         bar_row = QHBoxLayout()
         bar_row.setSpacing(10)
         self.progress = QProgressBar()
@@ -1531,6 +1576,15 @@ class MainWindow(QMainWindow):
         self.config_validate_again.setIconSize(QSize(13, 13))
         self.config_validate_again.clicked.connect(self._on_config_validate)
         self.validation_card.set_header_widget(self.config_validate_again)
+        self.config_schema_preview = QPushButton("Schema preview\u2026")
+        self.config_schema_preview.setObjectName("outline")
+        self.config_schema_preview.setMinimumHeight(28)
+        self.config_schema_preview.setToolTip(
+            "Compare this file with the pinned OpenCore sample before any "
+            "migration")
+        self.config_schema_preview.clicked.connect(
+            self._on_config_schema_preview)
+        self.validation_card.add_header_widget(self.config_schema_preview)
         validation_row = QHBoxLayout()
         validation_row.setSpacing(8)
         self.config_validation_icon = QLabel()
@@ -1750,6 +1804,27 @@ class MainWindow(QMainWindow):
         top.addWidget(self.quick_start_card, 3)
         top.addWidget(self.shortcuts_card, 2)
         layout.addLayout(top)
+
+        self.first_boot_card = _Card(
+            "Before the first boot",
+            "Advice for the first attempt. BlackDream never boots, installs or "
+            "writes firmware.")
+        for step in first_boot.STEPS:
+            self.first_boot_card.add(
+                _InfoRow(step.title, step.body, LIGHT, icon_name=step.icon))
+        self.first_boot_copy = QPushButton("Copy the checklist")
+        self.first_boot_copy.setObjectName("outline")
+        self.first_boot_copy.clicked.connect(self._copy_first_boot)
+        self.first_boot_note = QLabel("Nothing has been copied.")
+        self.first_boot_note.setObjectName("dialogMuted")
+        self.first_boot_note.setWordWrap(True)
+        first_boot_row = QHBoxLayout()
+        first_boot_row.setSpacing(10)
+        first_boot_row.addWidget(self.first_boot_copy)
+        first_boot_row.addWidget(self.first_boot_note, 1)
+        self.first_boot_card.add(first_boot_row)
+        self.first_boot_card.finish()
+        layout.addWidget(self.first_boot_card)
 
         bottom = QHBoxLayout()
         bottom.setSpacing(12)
@@ -2208,7 +2283,10 @@ class MainWindow(QMainWindow):
         self.version_combo.blockSignals(False)
         self._reset_details()
         self.empty_note.setVisible(True)
+        self.compare_releases_button.setEnabled(False)
+        self.compare_reports_button.setEnabled(self._report_path is not None)
         if rejected:
+            self._pending_release = ""
             self.devices_card.set_hint("No devices were graded from this report.")
             self.empty_note.setText(
                 "The engine rejected this report before grading any device.")
@@ -2312,7 +2390,10 @@ class MainWindow(QMainWindow):
         self.analysis = analysis
         self.report_field.set_state("ok", "Graded")
         self._populate_versions(options)
+        self._apply_pending_release()
         self._render_verdicts()
+        self.compare_releases_button.setEnabled(bool(self._options))
+        self.compare_reports_button.setEnabled(self._report_path is not None)
         summary = "Native support: {}".format(
             verdicts.friendly_range(analysis.native_range))
         if analysis.oclp_range:
@@ -2349,6 +2430,103 @@ class MainWindow(QMainWindow):
         self.version_combo.blockSignals(False)
         self._update_summary_note()
 
+    # ---- comparisons, profiles and history ----
+
+    def _apply_pending_release(self) -> None:
+        """Select the release a profile named, once its options exist."""
+        wanted = self._pending_release
+        self._pending_release = ""
+        if not wanted:
+            return
+        for index, option in enumerate(self._options):
+            if option.name == wanted or option.value == wanted:
+                self.version_combo.setCurrentIndex(index)
+                return
+
+    def _current_release_name(self) -> str:
+        index = self.version_combo.currentIndex()
+        if 0 <= index < len(self._options):
+            return self._options[index].name
+        return ""
+
+    def _on_compare_releases(self) -> None:
+        if self.analysis is None or not self._options or not self._verdicts:
+            return
+        matrix = release_matrix.build(
+            self._verdicts, self._options, self.analysis.oclp_range)
+        dialog = _ReleaseMatrixDialog(
+            self, matrix, getattr(self, "_palette", LIGHT))
+        dialog.exec()
+
+    def _on_compare_reports(self) -> None:
+        if self._report_path is None or self.runner.busy:
+            return
+        folder = self._report_path.parent
+        filename, _filter = QFileDialog.getOpenFileName(
+            self, "Compare hardware reports", str(folder),
+            "Hardware reports (Report.json *.json);;All files (*)")
+        if not filename:
+            return
+        before = state_store.read_json(self._report_path)
+        after = state_store.read_json(filename)
+        if before is None or after is None:
+            self._show_error(EngineError(detail=(
+                "One of the reports could not be read as a JSON object.")))
+            return
+        comparison = report_compare.compare(before, after)
+        dialog = _ReportCompareDialog(
+            self, comparison, self._report_path.name, Path(filename).name,
+            getattr(self, "_palette", LIGHT))
+        dialog.exec()
+
+    def _on_profiles(self) -> None:
+        dialog = _ProfilesDialog(
+            self, machine_profiles.load(), report=str(self._report_path or ""),
+            efi_folder=str(self._efi_folder or self._result_dir or ""),
+            release=self._current_release_name(),
+            palette=getattr(self, "_palette", LIGHT))
+        if dialog.exec() != QDialog.Accepted:
+            return
+        profile = dialog.selected_profile()
+        if profile is not None:
+            self._apply_profile(profile)
+
+    def _apply_profile(self, profile) -> None:
+        report = Path(profile.report)
+        if not report.is_file():
+            self._show_error(EngineError(detail=(
+                "The profile's report could not be found: {}".format(report))))
+            return
+        self._pending_release = profile.release
+        self.set_report(report)
+        if profile.efi_folder and Path(profile.efi_folder).is_dir():
+            self._result_dir = Path(profile.efi_folder)
+            self._set_efi_folder(profile.efi_folder, persist=True)
+            self.reveal_button.setEnabled(True)
+
+    def _on_build_history(self) -> None:
+        dialog = _HistoryDialog(
+            self, build_history.read(), getattr(self, "_palette", LIGHT))
+        dialog.exec()
+
+    def _record_build(self, status: str, output=None, manifest: str = "",
+                      detail: str = "") -> None:
+        """Append one outcome; a local write failure must not hide the outcome."""
+        self._build_recorded = True
+        entry = build_history.Entry(
+            at=datetime.now().astimezone().isoformat(timespec="seconds"),
+            status=status,
+            release=self._build_release,
+            output=str(output if output is not None
+                       else (self._result_dir or "")),
+            manifest=manifest,
+            detail=detail)
+        try:
+            build_history.append(entry)
+        except OSError as exc:
+            self._log_line(
+                "warning", "The build history could not be written: {}".format(exc))
+
     def _on_build(self) -> None:
         if self._installer_runner.busy or self._config_runner.busy:
             self._show_error(BuildNotReady(
@@ -2376,6 +2554,8 @@ class MainWindow(QMainWindow):
         acpi_dir = self.acpi_field.value() or None
         result_dir = Path(output)
         analysis = self.analysis
+        self._build_release = self._current_release_name()
+        self._build_recorded = False
         self._result_dir = result_dir
         self._build_started = time.monotonic()
         self._transfer_bytes.clear()
@@ -2413,7 +2593,10 @@ class MainWindow(QMainWindow):
         self._log_line("info", "Done: {}".format(result))
         self.reveal_button.setEnabled(True)
         self._finish_progress(result)
-        self._write_manifest(result)
+        manifest = self._write_manifest(result)
+        self._record_build(
+            "succeeded", result,
+            manifest=manifest.name if manifest is not None else "")
         self._on_preflight(result)
 
     # ---- folder checks ----
@@ -2427,15 +2610,16 @@ class MainWindow(QMainWindow):
             "validator": "ocvalidate {}".format(config_editor.OPEN_CORE_VERSION),
         }
 
-    def _write_manifest(self, folder: Path) -> None:
+    def _write_manifest(self, folder: Path) -> Path | None:
         try:
             path = efi_manifest.write(
                 folder, build=self._manifest_metadata(),
                 validation={"ocvalidate": "not run during build"})
         except (OSError, efi_manifest.ManifestError) as exc:
             self._log_line("warning", "The manifest could not be written: {}".format(exc))
-            return
+            return None
         self._log_line("info", "Manifest written: {}".format(path.name))
+        return path
 
     @staticmethod
     def _folder_root(folder) -> Path | None:
@@ -2860,6 +3044,8 @@ class MainWindow(QMainWindow):
         self.config_validate.setIcon(icons.icon("check", palette["text"], 14))
         self.config_validate_again.setIcon(
             icons.icon("check", palette["text"], 13))
+        self.config_schema_preview.setIcon(
+            icons.icon("layers", palette["text"], 13))
         self.config_open.setIcon(icons.icon("folder", palette["text"], 14))
         self.config_serials.setIcon(icons.icon("sliders", palette["text"], 14))
         self.config_reveal.setIcon(icons.icon("folder", palette["text"], 14))
@@ -2939,6 +3125,7 @@ class MainWindow(QMainWindow):
         self.config_search.setEnabled(document is not None)
         self.config_sections.setEnabled(document is not None and not busy)
         self.config_validate_again.setEnabled(document is not None and not busy)
+        self.config_schema_preview.setEnabled(document is not None and not busy)
         self.config_presets.setEnabled(document is not None and not busy)
         self._render_validation_state()
         self._update_config_actions()
@@ -3825,6 +4012,22 @@ class MainWindow(QMainWindow):
             timeout=900))
         self._render_config_state()
 
+    def _on_config_schema_preview(self) -> None:
+        document = self._config_doc
+        if document is None or self._config_runner.busy:
+            return
+        self._show_error(None)
+        self._config_job = "preview"
+        self._config_note = (
+            "Comparing config.plist with the pinned OpenCore sample\u2026")
+        self.config_progress.setRange(0, 0)
+        self.config_progress.setVisible(True)
+        data = copy.deepcopy(document.data)
+        self._config_runner.start(Job(
+            "Previewing a schema migration",
+            lambda token: _schema_preview_result(data), timeout=900))
+        self._render_config_state()
+
     def _on_config_serials(self) -> None:
         document = self._config_doc
         if document is None or self._config_runner.busy:
@@ -3920,6 +4123,14 @@ class MainWindow(QMainWindow):
             self._config_model = ""
             self._render_config_state()
             return
+        elif job == "preview":
+            preview, _changes, validation = outcome.value
+            dialog = _SchemaPreviewDialog(
+                self, preview, validation,
+                getattr(self, "_palette", LIGHT))
+            dialog.exec()
+            self._config_note = (
+                "Schema preview closed. Nothing was written to config.plist.")
         else:
             self._config_note = ""
         self._render_config_state()
@@ -3984,6 +4195,8 @@ class MainWindow(QMainWindow):
             self._log_line("warning", "{} cancelled".format(outcome.job))
             self.task_detail.setText("{} cancelled.".format(outcome.job))
             self.statusBar().showMessage("Stopped")
+            if outcome.job in _BUILD_JOBS and not self._build_recorded:
+                self._record_build("cancelled")
             return
         if outcome.job == "Checking compatibility":
             self.report_field.set_state("error", "Rejected")
@@ -3998,6 +4211,11 @@ class MainWindow(QMainWindow):
             # failure that name is not the step that stopped.
             self.task_name.setText(outcome.job)
             self.task_detail.setText("{} failed.".format(outcome.job))
+            if not self._build_recorded:
+                self._record_build(
+                    "failed",
+                    detail=str(getattr(outcome.error, "detail", "")
+                               or outcome.error or ""))
         self._log_line("error", str(outcome.error.detail or outcome.error))
         self._show_error(outcome.error)
         self.statusBar().showMessage("{} failed".format(outcome.job))
@@ -4014,6 +4232,12 @@ class MainWindow(QMainWindow):
         self.acpi_button.setEnabled(not busy)
         self.output_field.setEnabled(not busy)
         self.version_combo.setEnabled(not busy and bool(self._options))
+        self.compare_reports_button.setEnabled(
+            not busy and self._report_path is not None)
+        self.compare_releases_button.setEnabled(
+            not busy and self.analysis is not None and bool(self._options))
+        self.profiles_button.setEnabled(not busy)
+        self.history_button.setEnabled(not busy)
         self.reveal_button.setEnabled(
             not busy and self._result_dir is not None and self._result_dir.exists())
         if busy:
@@ -4066,7 +4290,8 @@ class MainWindow(QMainWindow):
         self.empty_note.setVisible(not self._verdicts)
         self.devices_card.set_hint(
             "No report loaded yet." if not self._verdicts else
-            "Detected {} devices from your hardware report.".format(len(self._verdicts)))
+            "Detected {} from your hardware report.".format(
+                _count(len(self._verdicts), "device")))
         if not self._verdicts:
             self._reset_details()
             return
@@ -4496,6 +4721,10 @@ class MainWindow(QMainWindow):
         text = diagnostics.Bundle(home=Path.home()).scrub(self._environment_text())
         QApplication.clipboard().setText(text)
         self.diagnostics_note.setText("Copied to the clipboard.")
+
+    def _copy_first_boot(self) -> None:
+        QApplication.clipboard().setText(first_boot.to_text())
+        self.first_boot_note.setText("Copied to the clipboard.")
 
     def _newest_crash(self) -> Path | None:
         try:
@@ -5493,6 +5722,602 @@ class _DiagnosticsDialog(QDialog):
             return
         self.saved_path = path
         self.accept()
+
+
+class _ReleaseMatrixDialog(QDialog):
+    """Every graded device against every selectable release; nothing is graded here."""
+
+    def __init__(self, parent, matrix, palette: dict) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Hardware compatibility by macOS release")
+        self.setMinimumSize(920, 500)
+        self.matrix = matrix
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(10)
+        heading = QLabel(
+            "{} across {}".format(
+                _count(len(matrix.rows), "device"),
+                _count(len(matrix.columns), "release")))
+        heading.setObjectName("rowTitle")
+        layout.addWidget(heading)
+        hint = QLabel(
+            "Each cell is the same status the device table would show for that "
+            "release. " + release_matrix.BOUNDARY)
+        hint.setObjectName("rowBody")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        self.tree = QTreeWidget()
+        self.tree.setObjectName("configTree")
+        self.tree.setHeaderLabels(
+            ["Device", "Class"] + [column.option.name for column in matrix.columns])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tree.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        header = self.tree.header()
+        header.setStretchLastSection(False)
+        # A stretched first column collapses once the release columns fill the
+        # dialog, eliding the one word that identifies the row.
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.tree.setColumnWidth(0, 200)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        self.tree.setColumnWidth(1, 76)
+        for index in range(2, self.tree.columnCount()):
+            header.setSectionResizeMode(index, QHeaderView.Fixed)
+            self.tree.setColumnWidth(index, 104)
+        for row in matrix.rows:
+            item = QTreeWidgetItem([
+                row.verdict.name, row.verdict.class_label or row.verdict.section])
+            item.setSizeHint(0, QSize(0, 29))
+            for offset, status in enumerate(row.cells):
+                column = offset + 2
+                item.setText(column, status.label)
+                item.setToolTip(column, "{} {}".format(
+                    status.detail, status.recommendation))
+                item.setData(column, Qt.ForegroundRole, qcolor(
+                    palette[_STATUS_TONE.get(status.key, "unknown")]))
+                tint = {"unsupported": "rowFailBg",
+                        "limited": "rowWarnBg"}.get(status.key)
+                if tint:
+                    item.setData(column, Qt.BackgroundRole,
+                                 qcolor(palette[tint]))
+            self.tree.addTopLevelItem(item)
+        if matrix.empty:
+            empty = QTreeWidgetItem(["No graded device to compare.", "", ""])
+            empty.setFlags(Qt.NoItemFlags)
+            self.tree.addTopLevelItem(empty)
+        layout.addWidget(self.tree, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        copy = buttons.addButton("Copy", QDialogButtonBox.ActionRole)
+        save = buttons.addButton("Save as text\u2026", QDialogButtonBox.ActionRole)
+        copy.setObjectName("outline")
+        save.setObjectName("outline")
+        copy.clicked.connect(self._copy)
+        save.clicked.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(release_matrix.to_text(self.matrix))
+
+    def _save(self) -> None:
+        path, _filter = QFileDialog.getSaveFileName(
+            self, "Save the release comparison",
+            str(Path.home() / "blackdream-release-comparison.txt"),
+            "Text files (*.txt);;All files (*)")
+        if not path:
+            return
+        try:
+            Path(path).write_text(
+                release_matrix.to_text(self.matrix), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "The comparison could not be saved", str(exc))
+
+
+class _ReportCompareDialog(QDialog):
+    """Two reports as recorded, with hardware and reading changes kept apart."""
+
+    _KINDS = {"added": "Added", "removed": "Removed",
+              "hardware": "Hardware", "reading": "Reading"}
+
+    def __init__(self, parent, comparison, before_name: str, after_name: str,
+                 palette: dict) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Compare hardware reports")
+        self.setMinimumSize(860, 500)
+        self.comparison = comparison
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(10)
+        heading = QLabel("{} \u2192 {}".format(before_name, after_name))
+        heading.setObjectName("rowTitle")
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+        hardware = sum(1 for item in comparison.changes
+                       if item.kind == "hardware")
+        reading = sum(1 for item in comparison.changes if item.kind == "reading")
+        counts = QLabel(
+            "{} \u00b7 {} \u00b7 {} unchanged".format(
+                _count(hardware, "hardware change"),
+                _count(reading, "recorded compatibility change"),
+                comparison.unchanged))
+        counts.setObjectName("rowBody")
+        counts.setWordWrap(True)
+        layout.addWidget(counts)
+        hint = QLabel(report_compare.BOUNDARY)
+        hint.setObjectName("rowBody")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        self.tree = QTreeWidget()
+        self.tree.setObjectName("configTree")
+        self.tree.setHeaderLabels(["Change", "Section", "Device", "Detail"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        header = self.tree.header()
+        header.setStretchLastSection(True)
+        self.tree.setColumnWidth(0, 96)
+        self.tree.setColumnWidth(1, 148)
+        self.tree.setColumnWidth(2, 208)
+        for change in comparison.changes:
+            item = QTreeWidgetItem([
+                self._KINDS.get(change.kind, change.kind.capitalize()),
+                change.section, change.name, change.detail])
+            item.setToolTip(3, change.detail)
+            self.tree.addTopLevelItem(item)
+        if comparison.empty:
+            empty = QTreeWidgetItem(["None", "No differences.", "", ""])
+            empty.setFlags(Qt.NoItemFlags)
+            self.tree.addTopLevelItem(empty)
+        layout.addWidget(self.tree, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        copy = buttons.addButton("Copy", QDialogButtonBox.ActionRole)
+        save = buttons.addButton("Save as text\u2026", QDialogButtonBox.ActionRole)
+        copy.setObjectName("outline")
+        save.setObjectName("outline")
+        copy.clicked.connect(self._copy)
+        save.clicked.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(
+            report_compare.to_text(self.comparison))
+
+    def _save(self) -> None:
+        path, _filter = QFileDialog.getSaveFileName(
+            self, "Save the report comparison",
+            str(Path.home() / "blackdream-report-comparison.txt"),
+            "Text files (*.txt);;All files (*)")
+        if not path:
+            return
+        try:
+            Path(path).write_text(
+                report_compare.to_text(self.comparison), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "The comparison could not be saved", str(exc))
+
+
+class _ProfilesDialog(QDialog):
+    """Local shortcuts to a report, an EFI folder and a release; no identity."""
+
+    def __init__(self, parent, profiles, report: str, efi_folder: str,
+                 release: str, palette: dict) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Profiles")
+        self.setMinimumSize(800, 460)
+        self._profiles = list(profiles)
+        self._report = report
+        self._efi_folder = efi_folder
+        self._release = release
+        self.selected: machine_profiles.Profile | None = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(10)
+        heading = QLabel("Local profiles on this machine")
+        heading.setObjectName("rowTitle")
+        layout.addWidget(heading)
+        hint = QLabel(
+            "A profile keeps a report path, an EFI folder and a release. It "
+            "stores no serial, MLB, UUID or ROM value, so a profile cannot "
+            "carry an identity to another machine.")
+        hint.setObjectName("rowBody")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        self.tree = QTreeWidget()
+        self.tree.setObjectName("configTree")
+        self.tree.setHeaderLabels(["Name", "Report", "Release", "EFI folder"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tree.setSelectionBehavior(QAbstractItemView.SelectRows)
+        header = self.tree.header()
+        header.setStretchLastSection(True)
+        self.tree.setColumnWidth(0, 170)
+        self.tree.setColumnWidth(1, 260)
+        self.tree.setColumnWidth(2, 110)
+        self.tree.itemSelectionChanged.connect(self._sync)
+        self.tree.itemDoubleClicked.connect(lambda *_args: self._use())
+        layout.addWidget(self.tree, 1)
+        self._note = QLabel("Nothing has been copied or saved.")
+        self._note.setObjectName("dialogMuted")
+        self._note.setWordWrap(True)
+        layout.addWidget(self._note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        self._save_current = buttons.addButton(
+            "Save current", QDialogButtonBox.ActionRole)
+        self._use_button = buttons.addButton("Use", QDialogButtonBox.AcceptRole)
+        self._rename_button = buttons.addButton(
+            "Rename\u2026", QDialogButtonBox.ActionRole)
+        self._remove_button = buttons.addButton(
+            "Remove", QDialogButtonBox.ActionRole)
+        for button in (self._save_current, self._use_button,
+                       self._rename_button, self._remove_button):
+            button.setObjectName("outline")
+        self._use_button.setObjectName("primary")
+        self._save_current.clicked.connect(self._save_profile)
+        self._use_button.clicked.connect(self._use)
+        self._rename_button.clicked.connect(self._rename)
+        self._remove_button.clicked.connect(self._remove)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self._refresh()
+
+    def selected_profile(self):
+        return self.selected
+
+    def _current(self):
+        item = self.tree.currentItem()
+        if item is None:
+            return None
+        name = item.data(0, Qt.UserRole)
+        return machine_profiles.find(self._profiles, name) if name else None
+
+    def _refresh(self, select: str | None = None) -> None:
+        self.tree.clear()
+        for profile in self._profiles:
+            item = QTreeWidgetItem([
+                profile.name, profile.report, profile.release,
+                profile.efi_folder])
+            item.setData(0, Qt.UserRole, profile.name)
+            item.setToolTip(1, profile.report)
+            item.setToolTip(3, profile.efi_folder)
+            self.tree.addTopLevelItem(item)
+            if select is not None and profile.name == select:
+                self.tree.setCurrentItem(item)
+        self._sync()
+
+    def _sync(self) -> None:
+        has_selection = self._current() is not None
+        self._use_button.setEnabled(has_selection)
+        self._rename_button.setEnabled(has_selection)
+        self._remove_button.setEnabled(has_selection)
+
+    def _persist(self) -> bool:
+        try:
+            machine_profiles.save(self._profiles)
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "The profiles could not be saved", str(exc))
+            return False
+        return True
+
+    def _save_profile(self) -> None:
+        if not self._report:
+            QMessageBox.information(
+                self, "No report loaded",
+                "Load a report before saving a profile.")
+            return
+        name, accepted = QInputDialog.getText(
+            self, "Save a profile", "Profile name")
+        name = name.strip()
+        if not accepted or not name:
+            return
+        profile = machine_profiles.Profile(
+            name=name, report=self._report, efi_folder=self._efi_folder,
+            release=self._release,
+            updated=datetime.now().astimezone().isoformat(timespec="seconds"))
+        self._profiles = machine_profiles.upsert(self._profiles, profile)
+        if self._persist():
+            self._note.setText("Saved {}.".format(name))
+            self._refresh(name)
+
+    def _use(self) -> None:
+        profile = self._current()
+        if profile is None:
+            return
+        self.selected = profile
+        self.accept()
+
+    def _rename(self) -> None:
+        profile = self._current()
+        if profile is None:
+            return
+        name, accepted = QInputDialog.getText(
+            self, "Rename a profile", "Profile name", text=profile.name)
+        name = name.strip()
+        if not accepted or not name or name == profile.name:
+            return
+        existing = machine_profiles.find(self._profiles, name)
+        if existing is not None:
+            QMessageBox.information(
+                self, "A profile with that name already exists",
+                "Choose another name, or remove that profile first.")
+            return
+        renamed = machine_profiles.Profile(
+            name=name, report=profile.report, efi_folder=profile.efi_folder,
+            release=profile.release, updated=profile.updated)
+        self._profiles = machine_profiles.upsert(
+            machine_profiles.remove(self._profiles, profile.name), renamed)
+        if self._persist():
+            self._note.setText("Renamed {} to {}.".format(profile.name, name))
+            self._refresh(name)
+
+    def _remove(self) -> None:
+        profile = self._current()
+        if profile is None:
+            return
+        answer = QMessageBox.question(
+            self, "Remove this profile?",
+            "Remove {}? The report and EFI folder stay on disk.".format(
+                profile.name))
+        if answer != QMessageBox.Yes:
+            return
+        self._profiles = machine_profiles.remove(self._profiles, profile.name)
+        if self._persist():
+            self._note.setText("Removed {}.".format(profile.name))
+            self._refresh()
+
+
+class _HistoryDialog(QDialog):
+    """What was built, and whether the recorded folder is still there."""
+
+    def __init__(self, parent, entries, palette: dict) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Build history")
+        self.setMinimumSize(900, 480)
+        self.entries = list(entries)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(10)
+        heading = QLabel("Builds recorded on this machine")
+        heading.setObjectName("rowTitle")
+        layout.addWidget(heading)
+        hint = QLabel(
+            "A build folder can be moved or deleted after the fact. The history "
+            "says what was recorded, not that the folder is still there.")
+        hint.setObjectName("rowBody")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        self.tree = QTreeWidget()
+        self.tree.setObjectName("configTree")
+        self.tree.setHeaderLabels(
+            ["When", "Release", "Result", "Output", "Folder", "Manifest"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tree.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tree.itemSelectionChanged.connect(self._sync)
+        self.tree.itemDoubleClicked.connect(lambda *_args: self._open_folder())
+        header = self.tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
+        header.setSectionResizeMode(5, QHeaderView.Fixed)
+        for index, width in enumerate((132, 96, 90, 0, 118, 104)):
+            if width:
+                self.tree.setColumnWidth(index, width)
+        for entry in self.entries:
+            item = QTreeWidgetItem([
+                _history_when(entry.at), entry.release,
+                entry.status.capitalize(), entry.output,
+                "Folder present" if build_history.folder_state(entry) == "ok"
+                else "Folder missing",
+                {"recorded": "Recorded", "missing": "Missing"}.get(
+                    build_history.manifest_state(entry), "Not recorded")])
+            item.setData(0, Qt.UserRole, entry.output)
+            item.setToolTip(3, entry.output)
+            self.tree.addTopLevelItem(item)
+        if not self.entries:
+            empty = QTreeWidgetItem(
+                ["None", "No builds have been recorded yet.", "", "", "", ""])
+            empty.setFlags(Qt.NoItemFlags)
+            self.tree.addTopLevelItem(empty)
+        layout.addWidget(self.tree, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        self._open_button = buttons.addButton(
+            "Open folder", QDialogButtonBox.ActionRole)
+        copy = buttons.addButton("Copy history", QDialogButtonBox.ActionRole)
+        save = buttons.addButton("Save as text\u2026", QDialogButtonBox.ActionRole)
+        for button in (self._open_button, copy, save):
+            button.setObjectName("outline")
+        self._open_button.clicked.connect(self._open_folder)
+        copy.clicked.connect(self._copy)
+        save.clicked.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self._sync()
+
+    def _current(self):
+        item = self.tree.currentItem()
+        if item is None:
+            return None
+        output = item.data(0, Qt.UserRole)
+        return next((entry for entry in self.entries
+                     if entry.output == output), None)
+
+    def _sync(self) -> None:
+        entry = self._current()
+        self._open_button.setEnabled(
+            entry is not None and build_history.folder_state(entry) == "ok")
+
+    def _open_folder(self) -> None:
+        entry = self._current()
+        if entry is None or build_history.folder_state(entry) != "ok":
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(entry.output))
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(build_history.to_text(self.entries))
+
+    def _save(self) -> None:
+        path, _filter = QFileDialog.getSaveFileName(
+            self, "Save the build history",
+            str(Path.home() / "blackdream-build-history.txt"),
+            "Text files (*.txt);;All files (*)")
+        if not path:
+            return
+        try:
+            Path(path).write_text(
+                build_history.to_text(self.entries), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "The history could not be saved", str(exc))
+
+
+class _SchemaPreviewDialog(QDialog):
+    """The pinned schema diff and what the validator says about the projection."""
+
+    def __init__(self, parent, preview, validation, palette: dict) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Schema preview")
+        self.setMinimumSize(880, 520)
+        self.preview = preview
+        self.validation = validation
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(10)
+        heading = QLabel(
+            "Pinned schema: OpenCore {}".format(preview.schema_version))
+        heading.setObjectName("rowTitle")
+        layout.addWidget(heading)
+        hint = QLabel(
+            "This is a reading, not a repair. Nothing here is applied, and "
+            "config.plist is not written.")
+        hint.setObjectName("rowBody")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        counts = QLabel(
+            "Missing: {} \u00b7 Extra: {} \u00b7 Different types: {}".format(
+                len(preview.missing), len(preview.extra), len(preview.types)))
+        counts.setObjectName("rowBody")
+        counts.setWordWrap(True)
+        layout.addWidget(counts)
+        self.tree = QTreeWidget()
+        self.tree.setObjectName("configTree")
+        self.tree.setHeaderLabels(["Change", "Key", "Current", "Pinned"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        header = self.tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        # The key path is the column a reader has to trust: an elided
+        # "Booter > Quirks > AvoidRuntimeDefr…" reads like a different key.
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.tree.setColumnWidth(0, 104)
+        for finding in self.preview.findings:
+            self.tree.addTopLevelItem(QTreeWidgetItem([
+                finding.kind.capitalize(), finding.label,
+                finding.current, finding.schema]))
+        if self.preview.empty:
+            empty = QTreeWidgetItem(
+                ["None", "No differences.", "", ""])
+            empty.setFlags(Qt.NoItemFlags)
+            self.tree.addTopLevelItem(empty)
+        layout.addWidget(self.tree, 1)
+        if validation is None:
+            result = "Validator not run: the projection adds no keys."
+        else:
+            result = "ocvalidate on the projected config: {}".format(
+                validation.summary)
+        self._result = QLabel(result)
+        self._result.setObjectName("rowTitle")
+        self._result.setWordWrap(True)
+        layout.addWidget(self._result)
+        self._issues = QListWidget()
+        self._issues.setObjectName("configIssues")
+        self._issues.setMaximumHeight(92)
+        issues = () if validation is None else validation.issues
+        for line in issues:
+            self._issues.addItem(line)
+        self._issues.setVisible(bool(issues))
+        layout.addWidget(self._issues)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        copy = buttons.addButton("Copy", QDialogButtonBox.ActionRole)
+        save = buttons.addButton("Save as text\u2026", QDialogButtonBox.ActionRole)
+        copy.setObjectName("outline")
+        save.setObjectName("outline")
+        copy.clicked.connect(self._copy)
+        save.clicked.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # The key column is sized here, not in __init__: the stylesheet font only
+        # resolves once the widget is polished, and a width measured against the
+        # default font elides the one string the reader has to trust.
+        self.tree.resizeColumnToContents(1)
+        self.tree.setColumnWidth(
+            1, min(max(self.tree.columnWidth(1), 240), 420))
+
+    def _text(self) -> str:
+        parts = [schema_preview.to_text(self.preview).rstrip()]
+        parts.append("")
+        parts.append("ocvalidate on the projected config")
+        if self.validation is None:
+            parts.append("Not run: the projection adds no keys.")
+        else:
+            parts.append(self.validation.summary)
+            parts.extend(self.validation.issues)
+        return "\n".join(parts).rstrip() + "\n"
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(self._text())
+
+    def _save(self) -> None:
+        path, _filter = QFileDialog.getSaveFileName(
+            self, "Save the schema preview",
+            str(Path.home() / "blackdream-schema-preview.txt"),
+            "Text files (*.txt);;All files (*)")
+        if not path:
+            return
+        try:
+            Path(path).write_text(self._text(), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "The preview could not be saved", str(exc))
+
+
+def _count(value: int, noun: str) -> str:
+    """A number and its noun, agreeing: "1 device", "2 devices"."""
+    return "{} {}".format(value, noun if value == 1 else noun + "s")
+
+
+def _history_when(value: str) -> str:
+    try:
+        return datetime.fromisoformat(value).astimezone().strftime(
+            "%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return value
+
+
+def _schema_preview_result(data: dict):
+    preview = schema_preview.compare(
+        data, config_editor.sample_plist(), config_editor.OPEN_CORE_VERSION)
+    changes = config_diff.diff(data, preview.projected)
+    validation = (config_editor.validate_document(preview.projected)
+                  if changes else None)
+    return preview, changes, validation
 
 
 def _editable_text(value, kind: str) -> str:

@@ -1,37 +1,59 @@
-# BlackDream 0.9.0-beta.2
+# BlackDream 0.9.0-beta.3
 
-Released 2026-10-23 · pre-release · MIT licensed · no account, no telemetry, no ads,
+Released 2026-10-24 · pre-release · MIT licensed · no account, no telemetry, no ads,
 no update check.
 
-This is the second build distributed outside the development machine. It is a **beta**:
+This is the third build distributed outside the development machine. It is a **beta**:
 it asks for reports, it does not promise coverage. The feature set is frozen at what
-`docs/UI-MOCKUP-SPEC.md` v3.5 marks *built*; anything labelled *concept* or *planned* is
+`docs/UI-MOCKUP-SPEC.md` v3.6 marks *built*; anything labelled *concept* or *planned* is
 not in this binary.
 
-## What is new in beta 2
+## What is new in beta 3
 
-Beta 2 adds four read-only helpers around the folder and the file the app already
-produces. None of them writes an EFI partition, mounts a disk, uploads anything or
+Beta 3 adds six surfaces around the analysis the app already produces: two comparisons,
+two local stores, one checklist and one preview. Every one of them reads. None of them
+grades a device, writes a file, mounts a disk, boots anything, uploads anything or
 claims that a clean result proves a boot.
 
-* **Folder checks** on the `Build EFI` view. `Run checks` reads the built folder and
-  verifies the three required files plus every `ACPI`, `Kernel`, `UEFI/Drivers` and
-  `Misc/Tools` path in `config.plist`. `Verify manifest` compares the folder with the
-  `.blackdream-manifest.json` the build wrote beside it, so a moved or edited file is
-  named instead of guessed. `Save report…` exports either result as plain text.
-* **Undo, Redo and Changes…** in the `Configure EFI` key toolbar. History is
-  snapshot-based and bounded at 100 edits, so binary `data`, key order and unknown keys
-  survive a round trip; it never re-reads or writes the file, and `Save` makes the saved
-  bytes the new baseline. `Changes since the file was opened` lists every edit with its
-  before and after values and can copy or save the list.
-* **Actionable validation.** Each `ocvalidate` line is now a row in a clickable list.
-  Choosing one selects the key it names; the app's explanation appears in the note and
-  never replaces or recounts the validator's own line. A line that names no single key
-  stays visible exactly as ocvalidate wrote it.
-* **Privacy-safe diagnostic bundle** in `Help`. `Save diagnostic bundle…` previews the
-  exact text, defaults `Report.json` to off, replaces serial, MLB, UUID and ROM values
-  with `<redacted>`, shortens the home folder to `~`, and writes a local `.txt` or
-  `.zip` that you attach yourself. Nothing is uploaded.
+* **Compare releases** (`Compatibility`, `Compare releases…`). One row per graded device,
+  one column per selectable macOS release, so the trade-off between 10.13 and Tahoe is
+  visible at once instead of one release at a time. Each cell is the label the `Status`
+  column already shows for that device, produced by the same function with the same OCLP
+  range — the grid cannot disagree with the table above it, and nothing is re-graded.
+  `Copy` and `Save as text…` export the grid. The dialog states plainly that these are
+  compatibility ranges, not a firmware, hardware or boot test.
+* **Compare reports** (`Compatibility`, `Compare reports…`). Pick a second `Report.json`
+  and the app diffs the two files exactly as they were recorded. It keeps two kinds of
+  change apart: a *hardware* change moves a field such as `Processor Name`, `Device ID`
+  or `PCI Path`, while a *reading* change is the same hardware whose stored compatibility
+  verdict differs. That distinction matters — a verdict that changed between two reports
+  can come from a different engine or database version rather than from the machine — and
+  neither side is re-analysed here. A file that is not a JSON object is refused with the
+  reason, not shown as a half comparison.
+* **Profiles** (`Compatibility`, `Profiles…`). A profile is five fields: a name, a report
+  path, an EFI folder, a release and an update stamp. It stores no serial, MLB, UUID or
+  ROM value, so a profile cannot carry one machine's identity onto another. `Use` loads
+  that report and selects the release the profile named once the version options exist;
+  if the report has moved, the app says so with its path and changes nothing else. The
+  list lives in `profiles.json` in BlackDream's own state folder, written atomically, and
+  is never synced or uploaded.
+* **Build history** (`Build progress`, `History…`). The last 100 builds this app made on
+  this machine, newest first, with the timestamp, release, result, output folder, and
+  whether that folder and its manifest are still where they were recorded. A folder you
+  moved or deleted is shown as `Folder missing` and its `Open folder` stays disabled —
+  the row is never rewritten or quietly pruned, because the history's job is to say what
+  happened, not what still exists. `Copy history` and `Save as text…` export it.
+* **Before the first boot** (`Help`). A card of six advice rows — a spare drive, firmware
+  settings, a way back, the OpenCore picker, verbose boot, a recovery plan — and a
+  `Copy the checklist` button. It is advice and nothing else: BlackDream has no boot
+  button, starts no reboot, and writes no firmware or NVRAM.
+* **Schema preview** (`Configure EFI`, `Schema preview…`). Compares the open
+  `config.plist` with the pinned OpenCore 1.0.8 sample and shows what a migration *would*
+  do: keys missing from the file, keys not in the schema, keys whose type changed. A
+  projection is then built from safe additions only — scalars and empty containers, never
+  an invented array — and OpenCore's own `ocvalidate` is run on that projection in the
+  background, with its result shown as written. There is no `Migrate`, `Apply` or `Fix`
+  button, `config.plist` is untouched, and the note written when the dialog closes says so.
 
 ## What is in this release
 
@@ -44,16 +66,23 @@ Three sections, in the order the workflow runs:
    you picked. The write replaces only `EFI` and `com.apple.recovery.boot`.
 2. **Build EFI** — `Compatibility`, `Build` and `Logs`. Open or drop a `Report.json`, or
    collect one on this machine, see the per-device verdicts for the chosen release, and
-   generate the EFI folder with live stages, transfer rates and cancellation.
+   generate the EFI folder with live stages, transfer rates and cancellation. The release
+   matrix, report comparison, profiles and build history above live here.
 3. **Configure EFI** — the built `config.plist` in the window: key tree with search,
    inline scalar editing, add/remove/move entries, 12 preset ACPI and Kernel patch
    entries, `data` values edited as hex or printable text, `ocvalidate` results inline,
-   `macserial` SMBIOS serials behind a confirmation, atomic `Save` with
-   `config.plist.bak`, and `Revert` back to the bytes on disk.
+   `macserial` SMBIOS serials behind a confirmation, undo/redo with a `Changes…` review,
+   atomic `Save` with `config.plist.bak`, and `Revert` back to the bytes on disk. The
+   schema preview above lives here.
 
 Plus `Settings` (theme, storage paths, safety statements), `Help` (quick start,
-shortcuts, troubleshooting, `Copy environment info`, `Save diagnostic bundle…`) and
-`Donate` (ways to help that do not involve money; no payment link exists yet).
+shortcuts, troubleshooting, the first-boot checklist, `Copy environment info`,
+`Save diagnostic bundle…`) and `Donate` (ways to help that do not involve money; no
+payment link exists yet).
+
+Carried over from beta 2, unchanged in behaviour: the `Folder checks` card (`Run checks`,
+`Verify manifest`, `Save report…`), clickable `ocvalidate` lines that select the key they
+name, and the privacy-safe diagnostic bundle.
 
 ## Safety behaviour you should know before you test
 
@@ -66,6 +95,11 @@ shortcuts, troubleshooting, `Copy environment info`, `Save diagnostic bundle…`
   a previous BlackDream build is replaced only when its marker proves ownership.
 * Editing, validating and generating serials change only the in-memory document. The
   file is written when, and only when, you press `Save`.
+* The new comparison surfaces read and never write. A release matrix or a report
+  comparison cannot change a verdict, and a schema preview cannot change a config.
+* Profiles and build history are local files in BlackDream's state folder, next to the
+  artifact cache. They are not uploaded, not synced, and a profile deliberately has no
+  field for an SMBIOS identity value.
 * Downloaded tools (`iasl`, `macserial`, `ocvalidate`, Hardware Sniffer) are verified
   against pinned SHA-256 digests before they run, and are never executed from a
   directory Python imports from.
@@ -76,7 +110,7 @@ shortcuts, troubleshooting, `Copy environment info`, `Save diagnostic bundle…`
 
 | Environment | Status |
 | --- | --- |
-| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 753 automated tests |
+| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 839 automated tests |
 | Windows 10/11 | the bundle is built and smoke-tested natively on a Windows runner; **no full workflow run on real hardware** |
 | macOS 14+ on Intel | the `.app` is built and smoke-tested natively on an Intel macOS runner; Apple Silicon runs the same Intel bundle under Rosetta 2; **no full workflow run on real hardware** |
 | CPython 3.11–3.13 | syntax-verified against the 3.11 grammar; **not executed** |
@@ -103,9 +137,30 @@ a number, so the promise in `Info.plist` is one the bundled Qt can keep.
 * **Apple decides which releases still exist.** Each choice in the release picker asks
   for a recovery image by board id and serial; if Apple stops serving one, the download
   fails with the reason rather than substituting another release's image.
+* **The release matrix is only as good as the ranges behind it.** It lays the same
+  compatibility tuples out per release, so an ungraded device reads `Not graded` in every
+  column. It says nothing about firmware, GPUs that need a kext, or whether the machine
+  boots.
+* **A report comparison compares recordings, not machines.** If one `Report.json` was
+  written by an older engine, its verdict differences appear as recorded reading changes.
+  The dialog names that boundary instead of hiding it, and nothing here re-grades either
+  file.
+* **Profiles and history are per machine and per user.** They are local files, not a
+  sync feature; a profile copied to another machine will usually name a report path that
+  does not exist, and the app will refuse it with that path.
+* **History stops at 100 entries** and records what the app itself built. A folder you
+  made with another tool, or an older build whose record fell off the end, is not there.
+* **The first-boot checklist is general advice.** It is not your motherboard's guide:
+  Secure Boot enrolment, the boot-menu key and NVRAM behaviour differ per board, and
+  BlackDream cannot read or change any of them.
+* **Schema preview is a reading, not a migrator.** It projects scalar and empty-container
+  additions only, so a missing array or dictionary is listed rather than created, and it
+  applies nothing. A real migration would need a review and a save, and no such button
+  exists yet.
 * **First use of `ocvalidate`, `macserial` or `iasl` needs the network** and writes into
   the per-user tools directory. Offline machines can pre-seed that directory (see
-  `README.md`).
+  `README.md`). Running the schema preview on a large config means running `ocvalidate`
+  once more on the projection.
 * **Presets are 12 entries**, the ACPI and Kernel patches adapted from OCAT's preset
   library. The library is not fetched and has no update channel.
 * **Undo history lives in memory and is bounded.** It keeps the 100 newest edits, is
@@ -142,11 +197,11 @@ Every build publishes these files into `dist/release/`:
 
 | Name | What it is |
 | --- | --- |
-| `BlackDream-0.9.0-beta.2-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
-| `blackdream_0.9.0b2_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
-| `blackdream-0.9.0b2-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
-| `blackdream-0.9.0b2-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
-| `blackdream-0.9.0b2.tar.gz` | the source distribution |
+| `BlackDream-0.9.0-beta.3-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
+| `blackdream_0.9.0b3_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
+| `blackdream-0.9.0b3-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
+| `blackdream-0.9.0b3-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
+| `blackdream-0.9.0b3.tar.gz` | the source distribution |
 
 A Linux bundle needs glibc 2.35 or newer. That is not a preference: the build measures
 the versioned symbols inside the shipped Qt and glib libraries and refuses to publish a

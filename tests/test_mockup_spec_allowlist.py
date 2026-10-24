@@ -498,3 +498,89 @@ def test_the_allowlist_describes_the_native_window():
     appearance = allow["settings"]["appearance"]
     assert appearance["choices"] == ["System", "Light", "Dark"]
     assert appearance["hint"] == "Follows the system by default. Changes apply immediately."
+
+
+def test_the_first_boot_card_is_the_spec_and_the_module():
+    """Advice rows are copy, so §16 carries them and the card must render them.
+
+    ``first_boot.STEPS`` is the only source of the checklist, and a mockup that
+    reorders the six steps or invents a seventh would pass the string check alone.
+    """
+    from blackdream.core import first_boot
+
+    block = _allowlist()["help"]["first_boot"]
+    assert block["steps"] == [{"title": step.title, "body": step.body,
+                               "icon": step.icon} for step in first_boot.STEPS]
+    assert block["boundary"] == first_boot.to_text().splitlines()[-1]
+    assert block["title"] == "Before the first boot"
+
+
+def test_the_first_boot_card_renders_one_row_per_step():
+    """Count the rows on the page, not the table in the spec."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from blackdream.core import first_boot
+    from blackdream.ui.main_window import MainWindow, _InfoRow
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window._usb_scanned = True
+    try:
+        window._show_view("Help")
+        app.processEvents()
+        rows = window.first_boot_card.findChildren(_InfoRow)
+        titles = [label.text() for label
+                  in window.first_boot_card.findChildren(QLabel)
+                  if label.objectName() == "rowTitle"]
+        assert titles == [step.title for step in first_boot.STEPS]
+        assert [row.body.text() for row in rows] == [
+            step.body for step in first_boot.STEPS]
+        assert len(rows) == 6
+        assert window.first_boot_note.text() == "Nothing has been copied."
+    finally:
+        for runner in (window.runner, window._installer_runner, window._usb_runner,
+                       window._config_runner):
+            runner.cancel()
+        window._ticker.stop()
+
+
+def test_the_read_only_dialogs_spec_the_boundaries_the_code_prints():
+    """The comparison dialogs quote a module boundary; §16 must quote the same sentence.
+
+    These sentences are the whole safety claim of the comparison surfaces, and a
+    spec that paraphrases one is a mockup that promises something else. The
+    histories' status words and cap are data, so they are pinned to the module too.
+    """
+    from blackdream.core import build_history, release_matrix, report_compare
+    from blackdream.core import schema_preview
+
+    allow = _allowlist()
+    dialogs = allow["read_only_dialogs"]
+    assert dialogs["release_matrix"]["boundary"] == release_matrix.BOUNDARY
+    assert dialogs["report_compare"]["boundary"] == report_compare.BOUNDARY
+    assert dialogs["report_compare"]["hardware_fields"] == [
+        field for field in report_compare.HARDWARE_FIELDS]
+    assert dialogs["profiles"]["title"] == "Profiles"
+    assert dialogs["history"]["statuses"] == list(build_history.STATUSES)
+    assert dialogs["history"]["max_entries"] == build_history.MAX_ENTRIES
+    assert allow["configure"]["schema_preview"]["export"]["boundary"] in (
+        schema_preview.to_text(schema_preview.Preview("1.0.8", (), {})))
+    assert allow["help"]["cards"][-1] == "Before the first boot"
+
+
+def test_the_new_links_and_headers_are_speced_as_buttons_or_links():
+    """A link label in the wrong §16 list is a mockup that draws the wrong widget.
+
+    ``Compare reports…`` and its neighbours are sidebar-free links; ``History…`` and
+    ``Schema preview…`` live in a card header. §16 keeps those three families apart,
+    so a design tool cannot promote one into the other's chrome.
+    """
+    allow = _allowlist()
+    for label in ("Compare reports…", "Profiles…", "Compare releases…"):
+        assert label in allow["links"]["buttons"], label
+        assert label not in allow["buttons"], label
+    for label in ("History…", "Schema preview…", "Copy the checklist",
+                  "Save current", "Use", "Rename…", "Open folder",
+                  "Copy history", "Save as text…"):
+        assert label in allow["buttons"], label
