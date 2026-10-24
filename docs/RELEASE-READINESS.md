@@ -28,7 +28,7 @@ cannot drift from the coverage.
 | Complete automated suite plus the UI microcopy allowlist test | Proved | 850 collected, 848 passed, 2 skipped; `tests/test_mockup_spec_allowlist.py` is 31 of them |
 | The P0 checklist, including fault injection for installer writes and config saves | Mapped below | every gate in section 2; the injected faults are the second-swap failure, the cancelled write, the refused swap, the externally changed file and `test_a_value_plist_cannot_hold_fails_the_save_before_it_touches_the_disk` |
 | The installer uses Apple's trust chain; pinned runtime binaries verified before they run | Proved | `test_the_real_apple_chunklist_verifies`, `test_asset_urls_must_stay_on_apple_cdn`, `test_a_tampered_tool_is_refused_before_it_runs`, `test_unpinned_download_still_refused` |
-| Upgrade, install and uninstall behaviour; user cache and output folders not deleted | **Not run** | the ownership rule in section 2 is what a package may own, and the `.deb`'s helper mode and owner are read off the finished artifact, but no machine has actually installed or removed this package: that needs root, and this host grants root only through polkit for the ACPI helper |
+| Upgrade, install and uninstall behaviour; user cache and output folders not deleted | Run | the audited `.deb` was installed and then removed against a fake root inside a throwaway user namespace, the development host untouched: 472 paths appeared, 459 went away with the removal, and the thirteen that stayed are `dpkg`'s own database. Everything planted beside the package survived — another package's doc, an `index.theme` inside the shared `hicolor` tree, a plist, a settings file, an EFI output folder, an unrelated application under `/opt` — and `dpkg` named the reason: `directory '/usr/share/icons/hicolor' not empty so not removed`. The helper and its polkit action read back `root:root` `0755` and `0644`, and writable state lives in `$XDG_DATA_HOME/blackdream`, never inside the root-owned `/opt/blackdream`. **Still not proved:** a desktop session answering polkit's prompt for the installed helper. |
 | Screenshots for the built states compared against the reject list | Run | all 14 window frames were re-rendered from this build, the six dialogs at their own sizes, and `docs/UI-MOCKUP-SPEC.md` §17 is what the allowlist test refuses |
 
 ## 2. Section 4 — P0 gates
@@ -169,19 +169,33 @@ not meet is "every P0 check passes", because A12's physical-media half has no ev
 That is the half Stage B exists to test — journey 4 in `docs/RELEASE-NOTES.md` asks a
 tester to write to a stick they can afford to lose and safely eject it.
 
-The audited artifact has to be the published one, so the workflow was run again on the last
-commit that changes anything inside a bundle (`README.md`, `docs/RELEASE-NOTES.md`,
-`docs/THIRD-PARTY.md` and `LICENSE` are copied beside the launcher) and the downloaded bytes
-were audited on this host: all five digests in `SHA256SUMS.txt` verified, the bundle's glibc
-floor measured 2.35, the `.deb`'s ACPI helper came out root-owned and mode-restricted, no
-runtime binary leaked into the wheel or sdist, and each package owns only the trees
-BlackDream's own files live in — so an uninstall cannot take away a profile, a build history
-or a folder the user chose. The bundle then started on this machine's Wayland session and
-again on X11 (`smoke ok: platform=wayland`, `smoke ok: platform=xcb`).
+The workflow was run again on the last commit that changes anything inside a bundle
+(`README.md`, `docs/RELEASE-NOTES.md`, `docs/THIRD-PARTY.md` and `LICENSE` are copied beside
+the launcher) and the downloaded bytes were audited on this host: all five digests in
+`SHA256SUMS.txt` verified, the bundle's glibc floor measured 2.35 across 417 files, the
+`.deb`'s ACPI helper came out root-owned and mode-restricted, no runtime binary leaked into
+the wheel or sdist, and each package owns only the trees BlackDream's own files live in. The
+bundle then started on this machine's Wayland session and again on X11 (`smoke ok:
+platform=wayland`, `smoke ok: platform=xcb`).
+
+**What "the audited artifact is the published one" actually rests on.** It cannot rest on a
+digest, and comparing two builds proved that: `7f3dfaf` and its child `a762715` differ in
+this file alone, and the builds of them produced different `.tar.gz`, `.deb` and `.rpm`
+digests while the wheel's came out identical. Extracting both bundles explains the split —
+every file in them is byte-for-byte the same except `_internal/base_library.zip`, whose 155
+entries are the same module names with the same CRC-32s and the same sizes, written in a
+different order. A digest identifies a build, not a commit. The identity is structural
+instead: `publish` runs only on a tag push, `needs: build`, and feeds `gh release create`
+from `actions/download-artifact` on that same run's uploads — it never rebuilds — while that
+run's own `build-release.sh` step is what measures the artifacts. So the bytes a tag
+publishes are the bytes that tag's run audited, and what a pre-tag audit can honestly promise
+is that these sources build into the content checked above. After a tag, the published files
+should be downloaded and re-measured with the same script; a mismatch there is a reason to
+delete the release, not to argue about it.
 
 This record is the one file that can still change afterwards, and it ships in neither the
-bundle nor the wheel: only the source distribution would carry it, so a wording fix here
-does not move a shipped binary. Anything else that changes must go through the same
+bundle nor the wheel: only the source distribution carries it, so a wording fix here does
+not move a shipped binary. Anything else that changes must go through the same
 build-and-audit cycle before a tag.
 
 **NO-GO for Stage C (wider public beta) until:**
@@ -214,3 +228,6 @@ Five P0 claims were promises rather than evidence, and each now has a test:
   depends on.
 * `packaging/verify-artifacts.py` refuses a package that owns anything outside
   `/opt/blackdream` and its documented system trees.
+* One sentence in this record was itself the finding: the two builds compared above proved
+  that a digest cannot promise the published bytes are the audited ones, so the claim now
+  rests on what `release.yml` actually does rather than on a checksum.
