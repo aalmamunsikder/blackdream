@@ -346,3 +346,27 @@ Five P0 claims were promises rather than evidence, and each now has a test:
   `test_the_keyboard_reaches_what_the_spec_promises` pin the two rules a screenshot cannot.
   §14's Devices-table sentence now states the column floors the table actually keeps, with
   `test_the_release_range_gives_way_before_the_device_name` holding them at three widths.
+
+## 9. The expansion roadmap, after beta 3
+
+`BlackDream_Feature_Expansion_Roadmap.md` §2 lists six features. All six are now running
+code, and `docs/UI-MOCKUP-SPEC.md` v3.7 marks each one's screen *built*: the preflight
+analyzer, the validation assistant, the config diff with undo/redo, the diagnostic bundle,
+the integrity manifest, and the dependency advisor (S34). §3's five candidates were built
+one cycle earlier. What follows is where each of the roadmap's own gates stands for the
+last of them, because that is the one with no hardware behind it.
+
+| Roadmap gate for the advisor | Status | Evidence |
+| --- | --- | --- |
+| "A small, versioned ruleset" | Proved | `RULESET = 1` is folded into every dismissal key, so a rule that changes meaning cannot inherit the dismissals written against the old one — `test_a_dismissal_made_under_an_older_ruleset_stays_hidden_no_longer` |
+| "backed by documented sources" | Proved | every advisory carries a `source` string naming a file and line in the vendored engine; `test_every_citation_names_a_file_and_lines_that_exist_here` parses all of them and refuses a citation past the end of its file, and `test_a_citation_lands_on_the_line_the_rule_claims` spot-checks ten |
+| "explicit hardware/context requirements" | Partly | the rules read only what `config.plist` claims plus the selected macOS release; nothing here consults firmware, ACPI tables or a device verdict, which is what the boundary sentence says out loud |
+| "trigger, evidence, affected key/path, confidence, dismiss/ignore option" | Proved | six fields on the row's detail pane plus `Dismiss`/`Restore`/`Show dismissed`, each pinned widget-by-widget in `tests/test_mockup_spec_allowlist.py` and in `test_the_advisor_dialog_shows_the_fields_a_reader_needs` |
+| "does not reorder kexts or alter kernel quirks" | Proved | `test_the_advisor_dialog_offers_no_way_to_change_the_config` refuses `Apply`, `Fix`, `Reorder` and `Migrate` by name and re-reads `config.plist`'s bytes; `test_dismissing_writes_the_record_file_and_nothing_else` shows the only file that changes is `advisor-dismissals.json` |
+| "Rules are versioned, explainable, and demonstrably useful in user testing" (Phase 4 exit) | **Not met** | the first two clauses are proved above; "demonstrably useful" needs a tester to classify a finding as actionable or wrong, and no build containing this screen has been distributed. The published `0.9.0-beta.3` binary does not have it. |
+
+False positives are the failure mode the roadmap tells us to prioritise, and the only
+measurement available without hardware is the pinned sample: `advise()` on
+`config_editor.sample_plist()` — the config the engine generates itself — returns
+`No dependency issues detected by these checks.`, which is the least the advisor can say
+about a file its own upstream produced. The next build's beta report asks for the rest.
