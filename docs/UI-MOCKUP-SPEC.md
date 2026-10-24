@@ -1,6 +1,6 @@
 # BlackDream — UI mockup specification
 
-**Version:** 3.6 · **Date:** 2026-10-24 · **Status:** every screen marked *built* is running code today
+**Version:** 3.7 · **Date:** 2026-10-24 · **Status:** every screen marked *built* is running code today
 
 3.0 is the shipped app window. It uses the **native window frame and title bar** on every platform
 and shows the real `File` / `View` / `Help` menu bar. Inside that client area the app paints its own
@@ -100,6 +100,17 @@ scalars and empty containers are projected — a missing array is listed, never 
 as text…` exports the review. Nothing is applied, and the note written after the dialog closes says
 so.
 
+3.7 adds one more reading of the same kind. `Dependencies…`, beside the two above in the
+`Validation` header, opens **Dependency advisories**: the kext, driver, boot-arg and quirk
+relationships the open file already claims, checked against the engine's own tables and cited line by
+line. A row is a relationship that does not hold — a plugin listed before its parent, a kext enabled
+against another in the same conflict group, a `MaxKernel` that excludes the release being targeted, a
+boot-arg whose kext is not selected — and each row states its trigger, its evidence, the key path it
+argues about, its confidence, and the `file:line` in this repository the rule was read from. There is
+no `Fix`, `Apply` or `Reorder` button anywhere in it: this release explains, and the user edits with
+the `Keys` tree. `Dismiss` hides one advisory hereafter, and the only thing it writes is a key in
+`advisor-dismissals.json` in this app's own state directory — never in `config.plist`.
+
 Inside the client area the material is glass on a lit blue canvas: a frosted 200 px sidebar,
 translucent cards with a 1 px lighter top edge, fields a step below them, a blue gradient primary
 button and progress fill, and a dark console in both themes. The structure below — eight views,
@@ -131,6 +142,7 @@ exact component states rather than adjectives.
    - `docs/screenshots/15-diagnostics-bundle.png` · `16-compare-releases.png`
    - `docs/screenshots/17-compare-reports.png` · `18-profiles.png`
    - `docs/screenshots/19-build-history.png` · `20-schema-preview.png`
+   - `docs/screenshots/21-dependency-advisories.png`
 2. Paste this whole file as context.
 3. Ask for one screen at a time, naming the section *and* the view, e.g.
    *"Render screen S4 (Fatal incompatibility card) on the Compatibility view at 1440×940, light
@@ -249,7 +261,7 @@ widget instances* — nothing is duplicated:
 | `Compatibility` | Two columns (43 : 57) above a full-width log. Left, top → bottom: the **setup card** (three path rows and the two capability links, untitled) · `macOS version` · the **actions card** (2 × 2 buttons, untitled). Right: `Detected devices` (grows) · `Build progress`; while details are open, `Device details` replaces `Build progress` in that slot. Bottom: `Engine log` across both columns |
 | `Build EFI` | Top row: the actions card (natural height) · `Build progress` (grows). Bottom: `Engine log` filling the rest. The top row stacks below 900 px |
 | `Logs` | `Engine log` only, taking the full content height; no scroll area |
-| `Configure EFI` | Top: `config.plist`, a compact file card across the content width. Then a three-column row: `Sections` (206 px fixed rail) · `Keys` (grows; tree, add/remove/move toolbar and key search) · `Selected entry` (268 px fixed inspector). Bottom: `Validation` across the content width. The page header's action slot carries the validation chip · schema chip · `Open config…` · `Validate` · `Save`. No session cards |
+| `Configure EFI` | Top: `config.plist`, a compact file card across the content width. Then a three-column row: `Sections` (206 px fixed rail) · `Keys` (grows; tree, add/remove/move toolbar and key search) · `Selected entry` (268 px fixed inspector). Bottom: `Validation` across the content width, its header carrying three outline buttons — `Schema preview…` · `Dependencies…` · `Validate again`. The page header's action slot carries the validation chip · schema chip · `Open config…` · `Validate` · `Save`. No session cards |
 | `Settings` | Top row: `Appearance` (2) · `About` (3). Bottom row: `Storage` (3) · `Downloads and safety` (3) |
 | `Help` | Top row: `Quick start` (3) · `Keyboard shortcuts` (2). Bottom row: `Troubleshooting` (3) · `Diagnostics` (2) |
 | `Donate` | `Support the project` full width, then a 2 × 2 grid: `Test on real hardware` · `Send a compatibility report` · `Share the app` · `Funding` |
@@ -433,8 +445,9 @@ the sidebar a `sidebarFill` gradient, over the silk.
 | S31 | Build: build-history dialog, with vanished folders named, not pruned | Build EFI | built |
 | S32 | Help: the first-boot checklist card and its copy button | Help | built |
 | S33 | Configure EFI: schema preview dialog, pinned-sample diff plus validator verdict | Configure EFI | built |
+| S34 | Configure EFI: dependency advisor dialog, cited rules and dismissals kept outside the plist | Configure EFI | built |
 
-Only S1–S11, S14, S16–S33 may be presented as current product. S12, S13 and S15 must
+Only S1–S11, S14, S16–S34 may be presented as current product. S12, S13 and S15 must
 be labelled *concept*. S14 and S16 follow host capability, not a platform guess: `Collect hardware`
 is drawn on Linux and Windows, `Read ACPI tables` on Linux only, and each is absent rather than
 disabled where its capability is missing. A macOS frame shows neither; a Windows frame shows Collect
@@ -445,11 +458,12 @@ only, because the Windows scan adopts the ACPI tables Hardware Sniffer exports.
 `Logs` is not a screen and gets no ID: it is the same log card at full height with the other cards
 removed, and the error card stays visible above it.
 
-S28–S31 and S33 are modal dialogs opened from a link or a card header, not pages in the sidebar; S32
+S28–S31, S33 and S34 are modal dialogs opened from a link or a card header, not pages in the
+sidebar; S32
 is a card on the existing `Help` page. Each is mounted only when it can answer: `Compare releases…`
 needs a finished analysis and a version picker, `Compare reports…` a report on disk, `Schema
-preview…` an open `config.plist`. `Profiles…` and `History…` are always available, because an empty
-list is a truthful answer about this machine.
+preview…` and `Dependencies…` an open `config.plist`. `Profiles…` and `History…` are always
+available, because an empty list is a truthful answer about this machine.
 
 ---
 
@@ -902,7 +916,7 @@ this table.
 | Help view | quick-start titles and bodies · shortcut actions · `Troubleshooting` copy · `Copy environment info` · `Save diagnostic bundle…` · `Nothing has been copied or saved.` · `Copied to the clipboard.` · the `Before the first boot` card: six step titles and bodies in §16, `Advice for the first attempt. BlackDream never boots, installs or writes firmware.`, `Copy the checklist`, `Nothing has been copied.` and the copied text's closing `This is advice. BlackDream has no boot button and writes no firmware.` |
 | Donate view | `Support the project` summary · `Test on real hardware` · `Send a compatibility report` · `Share the app` · `Funding` · `Donation links are not open yet.` |
 | Installer view | `Choose a macOS version` · `macOS <name> <version>` / `macOS Tahoe 26 · latest` · `Not downloaded yet.` · `About 1 GB. A dropped connection resumes where it stopped.` · `Verified · <size>` · `Download installer` / `Download again` · `Write installer` · `Refresh` · USB placeholder and notes in §16 |
-| Configure EFI view | Header chips `Not validated` · `Valid` · `Checking…` · `«n» issue(s)` · `OpenCore «version»`; file card status `No built config.plist yet.` · `config.plist is open` · `Unsaved changes` · `Changed on disk.` · `Changed on disk; unsaved edits here.` · `The config.plist could not be read.`; header buttons `Open config…` · `Validate` · `Save`; card buttons `Undo` · `Redo` · `Changes…` · `Generate serials` · `Revert` · `Show folder`; rail `Sections` · `All keys`; key search `Search keys…`; tree headers `Key` · `Value` · `Type`; inspector `Nothing selected` · `Select a key to inspect it.` · `No config.plist is open.` · `On` · `Apply` · `Edit…`; validation `Not checked yet.` · `Checking…` · `Valid` · `«n» issue(s)` and a clickable issue list that says `Select an issue to go to the key it names.` · `Schema preview…` in the `Validation` header, disabled until a document is open; the toolbar, notes and dialog copy are in §15 and §16 |
+| Configure EFI view | Header chips `Not validated` · `Valid` · `Checking…` · `«n» issue(s)` · `OpenCore «version»`; file card status `No built config.plist yet.` · `config.plist is open` · `Unsaved changes` · `Changed on disk.` · `Changed on disk; unsaved edits here.` · `The config.plist could not be read.`; header buttons `Open config…` · `Validate` · `Save`; card buttons `Undo` · `Redo` · `Changes…` · `Generate serials` · `Revert` · `Show folder`; rail `Sections` · `All keys`; key search `Search keys…`; tree headers `Key` · `Value` · `Type`; inspector `Nothing selected` · `Select a key to inspect it.` · `No config.plist is open.` · `On` · `Apply` · `Edit…`; validation `Not checked yet.` · `Checking…` · `Valid` · `«n» issue(s)` and a clickable issue list that says `Select an issue to go to the key it names.` · `Schema preview…` · `Dependencies…` in the `Validation` header, both disabled until a document is open; the toolbar, notes and dialog copy are in §15 and §16 |
 | Comparison, profile, history and preview dialogs | `Hardware compatibility by macOS release` · `Compare hardware reports` · `Profiles` · `Build history` · `Schema preview`, with the headers, notes, warnings and boundaries in §16 `read_only_dialogs` and `configure.schema_preview`. Each closes with `Copy` or `Copy history` and `Save as text…`; none of them has an Apply, Migrate, Boot or Write action |
 | Dialogs | `Engine verdict`, `Write installer?` / `Installer written`, `Changes since the file was opened`, `Save a diagnostic bundle`, and the editor's own: `Remove from config.plist?`, `Overwrite config.plist?`, `Edit data` / `Edit text`, `Add a key`, `Generate SMBIOS serials`, `Replace SMBIOS values?`. Validation is inline on the page, never a dialog. Settings and About are views in 2.1 |
 
@@ -1026,6 +1040,9 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
   else writes the file.
 - A config editor that reorders keys, rewrites unknown keys, or drops them. Key order follows the
   file, and a key the pinned sample does not know is shown with its real type and kept on save.
+- A dependency advisory with an `Apply`, `Fix` or `Reorder` button. S34 reports relationships the file
+  already claims and stops there; the only thing it writes is a dismissal key in the app's own state
+  directory, and a mockup that shows a corrected tree has invented an action the code refuses.
 - Serial, MLB or UUID values echoed into the engine log. The generated values appear in the tree and
   in the confirmation dialog only.
 - A config editor that mounts a disk, writes to the EFI partition, or repairs firmware. It edits one
@@ -1467,6 +1484,35 @@ the review, and the caveat and boundary lines are part of the text. Closing the 
 `Schema preview closed. Nothing was written to config.plist.` into the config note. There is no
 `Migrate`, `Apply` or `Fix` button anywhere in it, and the file on disk is untouched.
 
+**S34 Dependency advisories.** `Dependencies…` is an `outline` button with the `link` icon in the
+same `Validation` header, and — like `Schema preview…` — disabled without an open document or while
+the config runner is busy. It starts no job: the rules are arithmetic over the plist, so the answer is
+on screen before a worker thread could report back, and it is computed from a copy of the document,
+never from the live one. The 860 × 520 dialog is titled `Dependency advisories` and opens with the
+file it read, the advisor's own summary line, `Checked against «release».` from the version picker
+(or `Checked without a macOS release.` when no report is loaded), and the boundary sentence the export
+repeats.
+
+Rows arrive in the advisor's order — errors first, then the confident warnings — under `Severity`
+`Where` `Trigger`, with `Severity` fixed at 82 px, `Where` interactive at 300 px and `Trigger`
+stretching. The word is coloured (`Error` fail red, `Warning` warn amber, `Note` accent) and the full
+`Where` and `Trigger` text is in each cell's tooltip, because an elided key path is a different key.
+Selecting a row fills seven caption/value pairs: `Trigger`, `Evidence`, `Key path` (the same
+`A > B > C` spelling the `Changes…` dialog uses), `Confidence`, `Advice`, `Rule`, `Source`. `Source`
+is a `file:line` inside this repository, and it is the reason the column exists — an advisory nobody
+can check is a guess. With nothing to say the table shows one inert row, `No advisories.`
+
+`Go to key` closes the dialog and selects that path in the `Keys` tree, and the config note reads
+`Jumped to «path».`; closing without jumping writes `Dependencies checked. Nothing was written to
+config.plist.` `Dismiss` hides one advisory hereafter and `Restore` brings it back; both rewrite
+`advisor-dismissals.json` in this app's own state directory and say so in the line below the table,
+`Kept in «name», not in config.plist.` A dismissal is keyed on the ruleset number, the rule and the
+key path with list indices dropped, so it survives the reorder it asked about and a ruleset change
+stops honouring it. The `Show dismissed «n»` checkbox is disabled while nothing is dismissed, and
+ticking it lists the hidden rows again — a hidden advisory is never deleted. `Copy` and
+`Save as text…` export every advisory, dismissed or not, with the boundary line and any
+`Not checked: «note»` sentence. There is no `Fix`, `Apply` or `Reorder` button anywhere in it.
+
 **S12 Device & kext overrides** *(concept only)*. Appears between S3 and Build. Same window; the
 Devices table gains a per-kext checkbox column and a second table `Kexts` (name, version range, why
 it was selected). A `Reset to automatic` button restores the engine's choices. Nothing here may
@@ -1489,8 +1535,9 @@ artifact as it is verified against its pinned digest. No modal, no "welcome".
 Generated by reading `src/blackdream/ui/main_window.py`, `src/blackdream/ui/theme.py`,
 `src/blackdream/core/verdicts.py`, `src/blackdream/core/pipeline.py`,
 `src/blackdream/core/job_runner.py`, `src/blackdream/core/installer.py`,
-`src/blackdream/core/config_editor.py`, `src/blackdream/hardware/acpi.py` and `src/ocengine/fatal.py`
-on 2026-10-23. Paste this block into the mockup tool and require every visible string to appear in
+`src/blackdream/core/config_editor.py`, `src/blackdream/core/dependency_advisor.py`,
+`src/blackdream/hardware/acpi.py` and `src/ocengine/fatal.py`
+on 2026-10-24. Paste this block into the mockup tool and require every visible string to appear in
 it. `«…»` marks a value the code fills in at runtime — invent a plausible one, never a new label.
 
 ```json
@@ -1748,6 +1795,7 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "Save diagnostic bundle…",
     "History…",
     "Schema preview…",
+    "Dependencies…",
     "Copy the checklist",
     "Save current",
     "Use",
@@ -2655,6 +2703,71 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
         "not_run": "Not run: the projection adds no keys.",
         "caveat": "A key that is missing from this config may be optional or unnecessary for this machine.",
         "boundary": "This preview changes nothing. A migration would need a review and a save."
+      }
+    },
+    "dependencies": {
+      "button": "Dependencies…",
+      "tooltip": "Check the kext, driver and quirk relationships this file already claims",
+      "icon": "link",
+      "title": "Dependency advisories",
+      "minimum_size": [860, 520],
+      "target": "Checked against «release».",
+      "no_target": "Checked without a macOS release.",
+      "boundary": "These checks read config.plist. They do not reorder kexts, do not change any quirk, and do not test firmware, hardware or whether macOS boots.",
+      "headers": [
+        "Severity",
+        "Where",
+        "Trigger"
+      ],
+      "severities": [
+        "Error",
+        "Warning",
+        "Note"
+      ],
+      "fields": [
+        "Trigger",
+        "Evidence",
+        "Key path",
+        "Confidence",
+        "Advice",
+        "Rule",
+        "Source"
+      ],
+      "empty": [
+        "None",
+        "No advisories."
+      ],
+      "all_dismissed": "Everything is dismissed. Tick Show dismissed to read them.",
+      "go": "Go to key",
+      "go_tooltip": "Close this dialog and select that key in the tree",
+      "dismiss": "Dismiss",
+      "dismiss_tooltip": "Hide this advisory hereafter, in this app's own record file",
+      "restore": "Restore",
+      "show_dismissed": "Show dismissed",
+      "show_dismissed_count": "Show dismissed «n»",
+      "kept": "Kept in «name», not in config.plist.",
+      "write_failed": "The dismissals could not be saved: «detail»",
+      "copy": "Copy",
+      "save": "Save as text…",
+      "save_title": "Save the dependency report",
+      "save_failed": "The report could not be saved",
+      "filter": "Text files (*.txt);;All files (*)",
+      "closed": "Dependencies checked. Nothing was written to config.plist.",
+      "jumped": "Jumped to «path».",
+      "store": "advisor-dismissals.json",
+      "ruleset": 1,
+      "export": {
+        "header": "BlackDream dependency advisory",
+        "ruleset": "Ruleset: «n»",
+        "entries": "Kernel/Add entries: «n»",
+        "result": "Result: «summary»",
+        "not_checked": "Not checked: «note»",
+        "none": "No advisories.",
+        "row": "[«SEVERITY»] «where»",
+        "evidence": "  Evidence: «evidence»",
+        "confidence": "  Confidence: «confidence»",
+        "next": "  Next: «advice»",
+        "rule": "  Rule: «rule» («source»)"
       }
     }
   },

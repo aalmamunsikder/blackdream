@@ -25,7 +25,8 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import QColor, QFontMetrics  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDialog, QLabel  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication, QDialog, QLabel, QPushButton)
 
 import tests.fixtures as fixtures  # noqa: E402
 from ocengine import runtime  # noqa: E402
@@ -33,7 +34,9 @@ from ocengine.fatal import EngineError  # noqa: E402
 from ocengine.paths import EnginePaths  # noqa: E402
 
 from blackdream.core import build_history  # noqa: E402
+from blackdream.core import config_diff  # noqa: E402
 from blackdream.core import config_editor  # noqa: E402
+from blackdream.core import dependency_advisor as advisor  # noqa: E402
 from blackdream.core import efi_manifest  # noqa: E402
 from blackdream.core import first_boot  # noqa: E402
 from blackdream.core import installer as installer_core  # noqa: E402
@@ -495,3 +498,282 @@ def test_the_schema_preview_button_needs_an_open_document(
     window._render_config_state()
 
     assert window.config_schema_preview.isEnabled()
+
+
+
+
+# -- dependency advisor -------------------------------------------------------
+
+
+def _broken_document() -> dict:
+    """A file that disagrees with itself in three different ways.
+
+    Deliberately small: a ``MaxKernel`` that excludes the release being targeted,
+    a driver list with no ``OpenRuntime.efi``, and two kexts in the same conflict
+    group. That is one error the release choice causes, one error the engine's own
+    rules cause, and warnings a reader may reasonably want to dismiss.
+    """
+    return {
+        "Kernel": {"Add": [
+            {"BundlePath": "Lilu.kext", "Enabled": True},
+            {"BundlePath": "AppleALC.kext", "Enabled": True,
+             "MaxKernel": "20.4.0"},
+            {"BundlePath": "WhateverGreen.kext", "Enabled": True},
+            {"BundlePath": "NootRX.kext", "Enabled": True},
+        ]},
+        "UEFI": {"Drivers": [{"Path": "HfsPlus.efi", "Enabled": True}]},
+        "NVRAM": {"Add": {advisor.BOOT_SERVICES_GUID: {"boot-args": "-v"}}},
+    }
+
+
+def _open_config(window, tmp_path, document=None):
+    target = tmp_path / "config.plist"
+    target.write_bytes(config_editor.serialize_document(
+        document if document is not None else _broken_document()))
+    assert window._load_config(target, origin="chosen")
+    window._show_view("Configure EFI")
+    QApplication.processEvents()
+    return target
+
+
+def _advisor_dialog(window, release="macOS Sonoma 14", keys=()):
+    document = copy.deepcopy(window._config_doc.data)
+    report = advisor.advise(document, "23.99.99" if release else None)
+    dialog = ui._AdvisorDialog(window, report, window._config_doc.path, release,
+                               keys, window._palette)
+    dialog.show()
+    QApplication.processEvents()
+    return dialog, report
+
+
+def test_the_dependency_button_needs_an_open_document(make_window, tmp_path):
+    window = make_window()
+    assert not window.config_dependencies.isEnabled()
+    _open_config(window, tmp_path)
+    assert window.config_dependencies.isEnabled()
+
+
+def test_the_advisor_dialog_shows_the_fields_a_reader_needs(make_window,
+                                                           tmp_path):
+    """Trigger, evidence, key path, confidence and source on one screen.
+
+    Those five are what turns a warning into something a tester can check, and the
+    citation is the point of the last one: an advisory with no source line is a
+    guess wearing a badge.
+    """
+    window = make_window()
+    _open_config(window, tmp_path)
+    dialog, report = _advisor_dialog(window)
+    try:
+        assert [dialog.tree.headerItem().text(column)
+                for column in range(3)] == ["Severity", "Where", "Trigger"]
+        assert dialog.hint.text() == advisor.BOUNDARY
+        assert dialog.summary.text() == report.summary
+        assert dialog.target_note.text() == "Checked against macOS Sonoma 14."
+        assert len(dialog._rows) == len(report.advisories) > 0
+        for index in range(len(dialog._rows)):
+            dialog.tree.setCurrentItem(dialog.tree.topLevelItem(index))
+            item = dialog._rows[index]
+            assert dialog._values["Trigger"].text() == item.trigger
+            assert dialog._values["Evidence"].text() == item.evidence
+            assert dialog._values["Confidence"].text() == item.confidence.capitalize()
+            assert dialog._values["Advice"].text() == item.advice
+            assert dialog._values["Rule"].text() == item.rule
+            assert dialog._values["Source"].text() == item.source
+            # Spelled the way the Changes… dialog spells it, so the two surfaces
+            # cannot name one key in two shapes -- indices as ``[1]``, not ``1``.
+            assert dialog._values["Key path"].text() == \
+                config_diff.path_label(item.path)
+    finally:
+        dialog.close()
+
+
+def test_the_advisor_dialog_offers_no_way_to_change_the_config(make_window,
+                                                              tmp_path,
+                                                              monkeypatch):
+    """"Do not automatically reorder kexts or alter kernel quirks", in widget form.
+
+    The claim is about the whole surface, so it is checked against every button in
+    it -- including the ones a design tool would happily invent -- and against the
+    file, which is read back after the dismiss and the restore.
+    """
+    _state_dir(monkeypatch, tmp_path)
+    window = make_window()
+    target = _open_config(window, tmp_path)
+    before = target.read_bytes()
+    dialog, _report = _advisor_dialog(window)
+    try:
+        texts = {button.text() for button in dialog.findChildren(QPushButton)}
+        assert not texts & {"Fix", "Apply", "Reorder", "Migrate", "Save",
+                            "Auto-fix"}
+        dialog.tree.setCurrentItem(dialog.tree.topLevelItem(0))
+        dialog._dismiss()
+        dialog._restore()
+        assert target.read_bytes() == before
+        assert not window._config_doc.is_dirty()
+    finally:
+        dialog.close()
+
+
+def test_dismissing_writes_the_record_file_and_nothing_else(make_window,
+                                                           tmp_path,
+                                                           monkeypatch):
+    """One key in ``advisor-dismissals.json``, and the row comes back on Restore.
+
+    The dismissal is the only write this feature makes, so the test names the file,
+    the ruleset inside it and the sentence the dialog prints about it.
+    """
+    _state_dir(monkeypatch, tmp_path)
+    window = make_window()
+    target = _open_config(window, tmp_path)
+    before = target.read_bytes()
+    dialog, report = _advisor_dialog(window)
+    try:
+        dialog.tree.setCurrentItem(dialog.tree.topLevelItem(0))
+        hidden = dialog._rows[0]
+        dialog._dismiss()
+
+        record = tmp_path / "advisor-dismissals.json"
+        assert record.is_file()
+        stored = json.loads(record.read_text(encoding="utf-8"))
+        assert stored["ruleset"] == advisor.RULESET
+        assert stored["dismissed"] == [hidden.dismissal_key]
+        assert target.read_bytes() == before
+        assert hidden not in dialog._rows
+        assert len(dialog._rows) == len(report.advisories) - 1
+        assert dialog.show_dismissed.isEnabled()
+        assert dialog.show_dismissed.text() == "Show dismissed (1)"
+        assert dialog.status.text() == (
+            "Kept in advisor-dismissals.json, not in config.plist.")
+
+        dialog.show_dismissed.setChecked(True)
+        assert hidden in dialog._rows
+        dialog.tree.setCurrentItem(dialog._row_for(hidden))
+        dialog._restore()
+        assert json.loads(record.read_text(encoding="utf-8"))["dismissed"] == []
+        assert hidden in dialog._rows
+        assert dialog.show_dismissed.text() == "Show dismissed"
+        assert not dialog.show_dismissed.isEnabled()
+    finally:
+        dialog.close()
+
+
+def test_a_reopened_dialog_still_honours_a_dismissal(make_window, tmp_path,
+                                                    monkeypatch):
+    """The window loads the record, so a second opening cannot forget it.
+
+    A dismissal that only lasts until the dialog closes is a filter, not a
+    preference, and the roadmap asked for the preference.
+    """
+    _state_dir(monkeypatch, tmp_path)
+    window = make_window()
+    _open_config(window, tmp_path)
+    dialog, report = _advisor_dialog(window)
+    try:
+        dialog.tree.setCurrentItem(dialog.tree.topLevelItem(0))
+        hidden = dialog._rows[0]
+        dialog._dismiss()
+    finally:
+        dialog.close()
+
+    again, _second = _advisor_dialog(window, keys=advisor.load_dismissals())
+    try:
+        assert hidden not in again._rows
+        assert len(again._rows) == len(report.advisories) - 1
+        assert not again.show_dismissed.isChecked()
+        again.show_dismissed.setChecked(True)
+        assert hidden in again._rows
+    finally:
+        again.close()
+
+
+def test_go_to_key_selects_the_path_the_advisory_named(make_window, tmp_path):
+    """A jump that lands on the wrong row is worse than no jump at all."""
+    window = make_window()
+    _open_config(window, tmp_path)
+    dialog, report = _advisor_dialog(window)
+    try:
+        item = next(row for row in report.advisories
+                    if row.rule == "driver.pairing")
+        dialog.tree.setCurrentItem(dialog._row_for(item))
+        dialog._go_to_key()
+        assert dialog.jump_path == item.path
+        selected = window.config_tree.currentItem()
+        assert tuple(selected.data(0, Qt.UserRole)) == item.path
+    finally:
+        dialog.close()
+
+
+def test_the_button_runs_the_advisor_on_the_selected_release(make_window,
+                                                             tmp_path,
+                                                             monkeypatch):
+    """The version picker is the only thing that can make a ``MaxKernel`` wrong.
+
+    Without a release the window rules are skipped and said to be skipped, so this
+    drives the real handler after a real analysis and reads the report it handed the
+    dialog -- including the copy boundary: the editor's own document is untouched.
+    """
+    _state_dir(monkeypatch, tmp_path)
+    window = make_window()
+    _load(window, tmp_path)
+    release = window.version_combo.currentText()
+    assert window.version_combo.currentData(), "the report left no release"
+    _open_config(window, tmp_path)
+
+    opened = {}
+
+    def capture(self, *_args):
+        opened["dialog"] = self
+        return 0
+
+    monkeypatch.setattr(ui._AdvisorDialog, "exec", capture)
+    window._on_config_dependencies()
+
+    dialog = opened["dialog"]
+    assert dialog.target_note.text() == "Checked against {}.".format(release)
+    assert {row.rule for row in dialog._report.advisories} >= {
+        "window.excludes_target", "driver.pairing", "conflict.group"}
+    assert window._config_note == (
+        "Dependencies checked. Nothing was written to config.plist.")
+    assert dialog._report.entries == len(_broken_document()["Kernel"]["Add"])
+
+
+def test_a_config_without_a_release_says_what_it_did_not_check(make_window,
+                                                               tmp_path,
+                                                               monkeypatch):
+    """A skipped rule is reported as skipped, never as a clean bill."""
+    _state_dir(monkeypatch, tmp_path)
+    window = make_window()
+    _open_config(window, tmp_path)
+    opened = {}
+
+    def capture(self, *_args):
+        opened["dialog"] = self
+        return 0
+
+    monkeypatch.setattr(ui._AdvisorDialog, "exec", capture)
+    window._on_config_dependencies()
+
+    dialog = opened["dialog"]
+    assert dialog.target_note.text() == "Checked without a macOS release."
+    assert dialog._report.skipped
+    assert "Not checked: {}".format(dialog._report.skipped[0]) in dialog._text()
+    assert "window.excludes_target" not in {row.rule for row in dialog._rows}
+
+
+def test_the_export_is_the_dialogs_own_words(make_window, tmp_path):
+    """Copy, Save as text… and the screen must not disagree about a rule."""
+    window = make_window()
+    _open_config(window, tmp_path)
+    dialog, report = _advisor_dialog(window)
+    try:
+        text = dialog._text()
+        assert text == advisor.to_text(report)
+        assert text.startswith("BlackDream dependency advisory")
+        assert advisor.BOUNDARY in text
+        for item in report.advisories:
+            assert item.source in text
+            assert item.trigger in text
+            assert item.advice in text
+    finally:
+        dialog.close()

@@ -232,7 +232,7 @@ def test_no_button_is_narrower_than_its_own_label(make_window, qapp):
     assert clipped == []
 
     # The rail's 200 px is a spec promise, so the tagline beside the mark is what has
-    # to give -- and a clipped tagline is clipped in every one of the 20 screenshots.
+    # to give -- and a clipped tagline is clipped in every one of the 21 screenshots.
     hint = window.findChild(QLabel, "brandHint")
     assert hint.sizeHint().width() <= hint.width(), \
         "{!r} needs {} px in {} px".format(hint.text(), hint.sizeHint().width(),

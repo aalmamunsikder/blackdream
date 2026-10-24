@@ -18,7 +18,7 @@ Statuses used below:
 * **Run** — executed by hand on a real machine, bundle or artifact this cycle.
 * **Not proved** — nothing here demonstrates it, and what would.
 
-The suite is 912 tests (910 pass, 2 skip: one needs `pefile` to read a Windows version
+The suite is 922 tests (920 pass, 2 skip: one needs `pefile` to read a Windows version
 resource, one only runs where artifacts have been built). `docs/RELEASE-NOTES.md` states
 that number and a test pins it to `pytest --collect-only`, so a claim about coverage
 cannot drift from the coverage.
@@ -28,7 +28,7 @@ cannot drift from the coverage.
 | Stage A bullet | Status | Evidence |
 | --- | --- | --- |
 | Reproducible artifacts for each supported platform | Run | the `Build beta artifacts` workflow built the Linux, Windows and Intel-macOS artifacts from the final commit of this cycle, and every leg's own audit step passed |
-| Complete automated suite plus the UI microcopy allowlist test | Proved | 912 collected, 910 passed, 2 skipped; `tests/test_mockup_spec_allowlist.py` is 31 of them |
+| Complete automated suite plus the UI microcopy allowlist test | Proved | 922 collected, 920 passed, 2 skipped; `tests/test_mockup_spec_allowlist.py` is 32 of them |
 | The P0 checklist, including fault injection for installer writes and config saves | Mapped below | every gate in section 2; the injected faults are the second-swap failure, the cancelled write, the refused swap, the externally changed file and `test_a_value_plist_cannot_hold_fails_the_save_before_it_touches_the_disk` |
 | The installer uses Apple's trust chain; pinned runtime binaries verified before they run | Proved | `test_the_real_apple_chunklist_verifies`, `test_asset_urls_must_stay_on_apple_cdn`, `test_a_tampered_tool_is_refused_before_it_runs`, `test_unpinned_download_still_refused` |
 | Upgrade, install and uninstall behaviour; user cache and output folders not deleted | Run | the audited `.deb` was installed and then removed against a fake root inside a throwaway user namespace, the development host untouched: 472 paths appeared, 459 went away with the removal, and the thirteen that stayed are `dpkg`'s own database. Everything planted beside the package survived — another package's doc, an `index.theme` inside the shared `hicolor` tree, a plist, a settings file, an EFI output folder, an unrelated application under `/opt` — and `dpkg` named the reason: `directory '/usr/share/icons/hicolor' not empty so not removed`. The helper and its polkit action read back `root:root` `0755` and `0644`, and writable state lives in `$XDG_DATA_HOME/blackdream`, never inside the root-owned `/opt/blackdream`. **Still not proved:** a desktop session answering polkit's prompt for the installed helper. |

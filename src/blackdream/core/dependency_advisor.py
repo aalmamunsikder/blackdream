@@ -51,6 +51,12 @@ MEDIUM = "medium"
 #: ``boot-args`` here; an entry under any other GUID is never read by the firmware.
 BOOT_SERVICES_GUID = "7C436110-AB2A-4BBB-A880-FE41995C9F82"
 
+#: The one sentence that says what these checks are not. The dialog prints it and
+#: the export repeats it, so a reader who has only the file still has the boundary.
+BOUNDARY = ("These checks read config.plist. They do not reorder kexts, do not "
+            "change any quirk, and do not test firmware, hardware or whether "
+            "macOS boots.")
+
 _SEVERITY_ORDER = {ERROR: 0, WARNING: 1, INFO: 2}
 _CONFIDENCE_ORDER = {HIGH: 1, MEDIUM: 0}
 
@@ -687,8 +693,7 @@ def to_text(report: Report) -> str:
         "Kernel/Add entries: {}".format(report.entries),
         "Result: {}".format(report.summary),
         "",
-        "These checks read config.plist. They do not reorder kexts, do not change "
-        "any quirk, and do not test firmware, hardware or whether macOS boots.",
+        BOUNDARY,
         "",
     ]
     for note in report.skipped:

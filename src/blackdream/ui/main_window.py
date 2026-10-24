@@ -63,6 +63,7 @@ from blackdream.core import config_diff
 from blackdream.core import config_editor
 from blackdream.core import config_presets
 from blackdream.core import crash_log
+from blackdream.core import dependency_advisor
 from blackdream.core import diagnostics
 from blackdream.core import efi_manifest
 from blackdream.core import efi_preflight
@@ -1598,6 +1599,15 @@ class MainWindow(QMainWindow):
         self.config_schema_preview.clicked.connect(
             self._on_config_schema_preview)
         self.validation_card.add_header_widget(self.config_schema_preview)
+        self.config_dependencies = QPushButton("Dependencies\u2026")
+        self.config_dependencies.setObjectName("outline")
+        self.config_dependencies.setMinimumHeight(28)
+        self.config_dependencies.setIconSize(QSize(13, 13))
+        self.config_dependencies.setToolTip(
+            "Check the kext, driver and quirk relationships this file already "
+            "claims")
+        self.config_dependencies.clicked.connect(self._on_config_dependencies)
+        self.validation_card.add_header_widget(self.config_dependencies)
         validation_row = QHBoxLayout()
         validation_row.setSpacing(8)
         self.config_validation_icon = QLabel()
@@ -3062,6 +3072,8 @@ class MainWindow(QMainWindow):
             icons.icon("check", palette["text"], 13))
         self.config_schema_preview.setIcon(
             icons.icon("layers", palette["text"], 13))
+        self.config_dependencies.setIcon(
+            icons.icon("link", palette["text"], 13))
         self.config_open.setIcon(icons.icon("folder", palette["text"], 14))
         self.config_serials.setIcon(icons.icon("sliders", palette["text"], 14))
         self.config_reveal.setIcon(icons.icon("folder", palette["text"], 14))
@@ -3142,6 +3154,7 @@ class MainWindow(QMainWindow):
         self.config_sections.setEnabled(document is not None and not busy)
         self.config_validate_again.setEnabled(document is not None and not busy)
         self.config_schema_preview.setEnabled(document is not None and not busy)
+        self.config_dependencies.setEnabled(document is not None and not busy)
         self.config_presets.setEnabled(document is not None and not busy)
         self._render_validation_state()
         self._update_config_actions()
@@ -4042,6 +4055,42 @@ class MainWindow(QMainWindow):
         self._config_runner.start(Job(
             "Previewing a schema migration",
             lambda token: _schema_preview_result(data), timeout=900))
+        self._render_config_state()
+
+    def _on_config_dependencies(self) -> None:
+        """Run the advisor over a copy of the open document and show what it says.
+
+        The copy is not ceremony: the dialog is modal and stays open while the
+        editor behind it keeps accepting clicks on other surfaces, and an advisory
+        computed from a half-edited document would name a key path that no longer
+        exists. Nothing here starts a job -- the rules are arithmetic over the
+        plist, so the answer is on screen before a worker thread could report back.
+        """
+        document = self._config_doc
+        if document is None or self._config_runner.busy:
+            return
+        self._show_error(None)
+        target = self.version_combo.currentData()
+        release = (self.version_combo.currentText()
+                   if target is not None else "")
+        try:
+            report = dependency_advisor.advise(copy.deepcopy(document.data),
+                                               target)
+        except dependency_advisor.AdvisorError as exc:
+            self._config_note = str(exc)
+            self._render_config_state()
+            return
+        dialog = _AdvisorDialog(
+            self, report, document.path, release,
+            dependency_advisor.load_dismissals(),
+            getattr(self, "_palette", LIGHT))
+        dialog.exec()
+        if dialog.jump_path is not None:
+            self._config_note = "Jumped to {}.".format(
+                config_diff.path_label(dialog.jump_path))
+        else:
+            self._config_note = (
+                "Dependencies checked. Nothing was written to config.plist.")
         self._render_config_state()
 
     def _on_config_serials(self) -> None:
@@ -5649,6 +5698,305 @@ class _ChangesDialog(QDialog):
             return
         self._hint.setText("Saved to {}. Nothing was written into the config.".format(
             path))
+
+
+class _AdvisorDialog(QDialog):
+    """Every relationship this config claims and does not keep, read-only.
+
+    The rows arrive in the advisor's own order -- errors before warnings, the
+    confident ones first -- and the detail pane exists because a trigger is not a
+    reason. Evidence and the repository line the rule was read from are what let a
+    tester check the claim instead of taking it on faith.
+
+    Dismissing is the only write here. It adds one key to this app's own record
+    file and never touches config.plist, which is why the button that changes the
+    config is absent by design: the roadmap's first release of this feature may
+    explain, not reorder or re-quote.
+    """
+
+    #: The advisor's severity words, spelled the way a reader spells them.
+    _SEVERITY = {dependency_advisor.ERROR: "Error",
+                 dependency_advisor.WARNING: "Warning",
+                 dependency_advisor.INFO: "Note"}
+
+    def __init__(self, parent, report, path, release: str, keys,
+                 palette: dict) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Dependency advisories")
+        self.setMinimumSize(860, 520)
+        self._window = parent
+        self._report = report
+        self._palette = palette
+        self._keys = set(keys)
+        self._rows: list[dependency_advisor.Advisory] = []
+        self.jump_path: tuple | None = None
+        self.dismissed_count = len(
+            [key for key in self._report_keys(report) if key in self._keys])
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(10)
+
+        heading = QLabel(str(path))
+        heading.setObjectName("rowTitle")
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+        self.summary = QLabel(report.summary)
+        self.summary.setObjectName("rowTitle")
+        self.summary.setWordWrap(True)
+        layout.addWidget(self.summary)
+        self.target_note = QLabel(
+            "Checked against {}.".format(release) if release
+            else "Checked without a macOS release.")
+        self.target_note.setObjectName("rowBody")
+        self.target_note.setWordWrap(True)
+        layout.addWidget(self.target_note)
+        self.hint = QLabel(dependency_advisor.BOUNDARY)
+        self.hint.setObjectName("rowBody")
+        self.hint.setWordWrap(True)
+        layout.addWidget(self.hint)
+
+        self.tree = QTreeWidget()
+        self.tree.setObjectName("configTree")
+        self.tree.setHeaderLabels(["Severity", "Where", "Trigger"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setUniformRowHeights(True)
+        self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tree.setAllColumnsShowFocus(True)
+        self.tree.currentItemChanged.connect(self._on_current_changed)
+        header = self.tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.tree.setColumnWidth(1, 300)
+        self.tree.setColumnWidth(0, 82)
+        layout.addWidget(self.tree, 1)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(4)
+        grid.setColumnStretch(1, 1)
+        self._values: dict[str, QLabel] = {}
+        for row, name in enumerate(("Trigger", "Evidence", "Key path",
+                                    "Confidence", "Advice", "Rule", "Source")):
+            caption = QLabel(name)
+            caption.setObjectName("detailKey")
+            caption.setFixedWidth(102)
+            value = QLabel("\u2014")
+            value.setObjectName("rowBody")
+            value.setWordWrap(True)
+            value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            grid.addWidget(caption, row, 0, Qt.AlignTop)
+            grid.addWidget(value, row, 1)
+            self._values[name] = value
+        layout.addLayout(grid)
+
+        self.status = QLabel()
+        self.status.setObjectName("rowBody")
+        self.status.setWordWrap(True)
+        self.status.setVisible(False)
+        layout.addWidget(self.status)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        self.show_dismissed = QCheckBox("Show dismissed")
+        self.show_dismissed.toggled.connect(self._populate)
+        actions.addWidget(self.show_dismissed)
+        actions.addStretch(1)
+        self.go_button = QPushButton("Go to key")
+        self.go_button.setObjectName("outline")
+        self.go_button.setMinimumHeight(32)
+        self.go_button.setToolTip(
+            "Close this dialog and select that key in the tree")
+        self.go_button.clicked.connect(self._go_to_key)
+        self.dismiss_button = QPushButton("Dismiss")
+        self.dismiss_button.setObjectName("outline")
+        self.dismiss_button.setMinimumHeight(32)
+        self.dismiss_button.setToolTip(
+            "Hide this advisory hereafter, in this app's own record file")
+        self.dismiss_button.clicked.connect(self._dismiss)
+        self.restore_button = QPushButton("Restore")
+        self.restore_button.setObjectName("outline")
+        self.restore_button.setMinimumHeight(32)
+        self.restore_button.clicked.connect(self._restore)
+        for button in (self.go_button, self.dismiss_button,
+                       self.restore_button):
+            actions.addWidget(button)
+        layout.addLayout(actions)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        copy = buttons.addButton("Copy", QDialogButtonBox.ActionRole)
+        save = buttons.addButton("Save as text\u2026", QDialogButtonBox.ActionRole)
+        copy.setObjectName("outline")
+        save.setObjectName("outline")
+        copy.clicked.connect(self._copy)
+        save.clicked.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.show_dismissed.setEnabled(self.dismissed_count > 0)
+        self._set_dismissed_label()
+        self._populate()
+        self.tree.setFocus()
+
+    def _set_dismissed_label(self) -> None:
+        """Nothing to reveal reads as a bare label; a count promises rows."""
+        if self.dismissed_count:
+            self.show_dismissed.setText("Show dismissed ({})".format(
+                self.dismissed_count))
+        else:
+            self.show_dismissed.setText("Show dismissed")
+            self.show_dismissed.setChecked(False)
+
+    @staticmethod
+    def _report_keys(report) -> list:
+        """The dismissal keys this report can dismiss or restore."""
+        return [item.dismissal_key for item in report.advisories]
+
+    def _visible_rows(self) -> list:
+        if self.show_dismissed.isChecked():
+            return list(self._report.advisories)
+        return list(dependency_advisor.visible(
+            self._report, self._keys))
+
+    def _populate(self) -> None:
+        previous = self._current()
+        self.tree.clear()
+        self._rows = self._visible_rows()
+        for index, item in enumerate(self._rows):
+            row = QTreeWidgetItem((
+                self._SEVERITY.get(item.severity, item.severity),
+                item.where, item.trigger))
+            row.setData(0, Qt.UserRole, index)
+            row.setToolTip(1, item.where)
+            row.setToolTip(2, item.trigger)
+            color = {dependency_advisor.ERROR: self._palette["fail"],
+                     dependency_advisor.WARNING: self._palette["warn"]}.get(
+                         item.severity, self._palette["accent"])
+            row.setForeground(0, QColor(color))
+            self.tree.addTopLevelItem(row)
+        if not self._rows:
+            empty = QTreeWidgetItem((
+                "None", "",
+                "Everything is dismissed. Tick Show dismissed to read them."
+                if self._report.advisories else "No advisories."))
+            empty.setFlags(Qt.NoItemFlags)
+            self.tree.addTopLevelItem(empty)
+        if previous is not None and previous < len(self._rows):
+            self.tree.setCurrentItem(self.tree.topLevelItem(previous))
+        elif self._rows:
+            self.tree.setCurrentItem(self.tree.topLevelItem(0))
+        else:
+            self._on_current_changed(None)
+
+    def _current(self) -> int | None:
+        item = self.tree.currentItem()
+        if item is None:
+            return None
+        index = item.data(0, Qt.UserRole)
+        return index if isinstance(index, int) else None
+
+    def _current_advisory(self):
+        index = self._current()
+        return None if index is None else self._rows[index]
+
+    def _row_for(self, advisory) -> QTreeWidgetItem:
+        """The tree row currently holding ``advisory``, or None.
+
+        Rows are rebuilt on every dismiss, restore and filter change, so a caller
+        that holds an advisory needs this rather than an index it cached earlier.
+        """
+        for index, item in enumerate(self._rows):
+            if item is advisory:
+                return self.tree.topLevelItem(index)
+        return None
+
+    def _on_current_changed(self, current, _previous=None) -> None:
+        item = self._current_advisory()
+        for value in self._values.values():
+            value.setText("\u2014")
+        enabled = item is not None
+        self.go_button.setEnabled(enabled)
+        self.dismiss_button.setEnabled(enabled and not self._is_dismissed(item))
+        self.restore_button.setEnabled(enabled and self._is_dismissed(item))
+        if item is None:
+            return
+        self._values["Trigger"].setText(item.trigger)
+        self._values["Evidence"].setText(item.evidence)
+        self._values["Key path"].setText(config_diff.path_label(item.path))
+        self._values["Confidence"].setText(item.confidence.capitalize())
+        self._values["Advice"].setText(item.advice)
+        self._values["Rule"].setText(item.rule)
+        self._values["Source"].setText(item.source)
+
+    def _is_dismissed(self, item) -> bool:
+        return item is not None and item.dismissal_key in self._keys
+
+    def _write(self, keys) -> bool:
+        """Replace the record file, and say plainly which file that is."""
+        try:
+            saved = dependency_advisor.save_dismissals(keys)
+        except OSError as exc:
+            self.status.setText("The dismissals could not be saved: {}".format(
+                exc))
+            self.status.setVisible(True)
+            return False
+        self._keys = set(keys)
+        self.dismissed_count = len(
+            [key for key in self._report_keys(self._report) if key in self._keys])
+        self.show_dismissed.setEnabled(self.dismissed_count > 0)
+        self._set_dismissed_label()
+        self.status.setText(
+            "Kept in {}, not in config.plist.".format(saved.name))
+        self.status.setVisible(True)
+        return True
+
+    def _dismiss(self) -> None:
+        item = self._current_advisory()
+        if item is None:
+            return
+        if self._write(set(dependency_advisor.dismiss(self._keys, item))):
+            self._populate()
+
+    def _restore(self) -> None:
+        item = self._current_advisory()
+        if item is None:
+            return
+        if self._write(set(dependency_advisor.restore(self._keys, item))):
+            self._populate()
+
+    def _go_to_key(self) -> None:
+        item = self._current_advisory()
+        if item is None:
+            return
+        self.jump_path = tuple(item.path)
+        self._window._select_config_path(self.jump_path)
+        self.accept()
+
+    def _text(self) -> str:
+        return dependency_advisor.to_text(self._report)
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(self._text())
+
+    def _save(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save the dependency report",
+            str(Path.home() / "blackdream-dependencies.txt"),
+            "Text files (*.txt);;All files (*)")
+        if not path:
+            return
+        try:
+            Path(path).write_text(self._text(), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "The report could not be saved", str(exc))
+            return
+        self.status.setText("Saved to {}. Nothing was written into the "
+                            "config.".format(path))
+        self.status.setVisible(True)
 
 
 class _DiagnosticsDialog(QDialog):

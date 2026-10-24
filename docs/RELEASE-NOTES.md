@@ -6,7 +6,8 @@ no update check.
 This is the third build distributed outside the development machine. It is a **beta**:
 it asks for reports, it does not promise coverage. The feature set is frozen at what
 `docs/UI-MOCKUP-SPEC.md` v3.6 marks *built*; anything labelled *concept* or *planned* is
-not in this binary.
+not in this binary. The spec has since moved to v3.7, and the one screen it added there is
+listed under *After beta 3* below rather than under this release.
 
 ## What is new in beta 3
 
@@ -54,6 +55,25 @@ claims that a clean result proves a boot.
   an invented array — and OpenCore's own `ocvalidate` is run on that projection in the
   background, with its result shown as written. There is no `Migrate`, `Apply` or `Fix`
   button, `config.plist` is untouched, and the note written when the dialog closes says so.
+
+## After beta 3
+
+One surface is merged in the source tree and is **not** in the published beta 3 binary. It
+will ship in the next build; if you are testing `0.9.0-beta.3` you cannot see it.
+
+* **Dependency advisories** (`Configure EFI`, `Dependencies…`). Reads the kext, driver,
+  boot-arg and quirk relationships the open `config.plist` already claims and reports the
+  ones it does not keep: a kext whose `MaxKernel` excludes the release you selected, a
+  boot-arg naming a kext that is not injected, `OpenRuntime.efi` missing from `UEFI` while
+  its pairing quirk is on, a duplicate entry, two graphics kexts that both claim the same
+  hardware, a quirk pair the engine never derives apart. Every row cites the rule it came
+  from and the file and line that rule was read at, so a tester can check the claim rather
+  than take it. `Copy` and `Save as text…` export the report with the same citation block
+  it shows on screen. `Dismiss` hides one advisory hereafter and `Go to key` closes the
+  dialog with that key selected in the tree. There is no `Apply`, `Fix` or `Reorder`
+  button: this reports relationships, it does not edit them. Dismissals are the only write
+  and they go to `advisor-dismissals.json` in BlackDream's own state folder, never into
+  `config.plist`.
 
 ## What is in this release
 
@@ -110,7 +130,7 @@ name, and the privacy-safe diagnostic bundle.
 
 | Environment | Status |
 | --- | --- |
-| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 912 automated tests |
+| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 922 automated tests |
 | Windows 10/11 | the bundle is built and smoke-tested natively on a Windows runner; **no full workflow run on real hardware** |
 | macOS 14+ on Intel | the `.app` is built and smoke-tested natively on an Intel macOS runner; Apple Silicon runs the same Intel bundle under Rosetta 2; **no full workflow run on real hardware** |
 | CPython 3.11–3.13 | syntax-verified against the 3.11 grammar; **not executed** |

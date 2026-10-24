@@ -580,7 +580,70 @@ def test_the_new_links_and_headers_are_speced_as_buttons_or_links():
     for label in ("Compare reports…", "Profiles…", "Compare releases…"):
         assert label in allow["links"]["buttons"], label
         assert label not in allow["buttons"], label
-    for label in ("History…", "Schema preview…", "Copy the checklist",
-                  "Save current", "Use", "Rename…", "Open folder",
-                  "Copy history", "Save as text…"):
+    for label in ("History…", "Schema preview…", "Dependencies…",
+                  "Copy the checklist", "Save current", "Use", "Rename…",
+                  "Open folder", "Copy history", "Save as text…"):
         assert label in allow["buttons"], label
+
+
+def test_the_dependency_dialog_is_speced_widget_by_widget():
+    """S34's §16 block is read off the built dialog, not off the prose.
+
+    The five fields the roadmap asks for -- trigger, evidence, key path,
+    confidence, source -- are seven caption labels in a grid nobody can grep for by
+    name, and the boundary sentence is shared with the export. Pinning the block to
+    the widgets is what keeps a mockup from inventing an eighth row, a fourth
+    severity word, or the ``Fix`` button this surface refuses to have.
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from blackdream.core import dependency_advisor
+    from blackdream.ui import icons
+    from blackdream.ui.main_window import _AdvisorDialog
+    from blackdream.ui.theme import LIGHT
+
+    app = QApplication.instance() or QApplication([])
+    allow = _allowlist()["configure"]["dependencies"]
+    document = {"Kernel": {"Add": [
+        {"BundlePath": "Lilu.kext", "Enabled": True},
+        {"BundlePath": "WhateverGreen.kext", "Enabled": True},
+        {"BundlePath": "NootRX.kext", "Enabled": True},
+    ]}, "UEFI": {"Drivers": []}}
+    report = dependency_advisor.advise(document, "23.99.99")
+    dialog = _AdvisorDialog(None, report, "/tmp/config.plist",
+                            "macOS Sonoma 14", (), LIGHT)
+    try:
+        assert [dialog.tree.headerItem().text(column)
+                for column in range(3)] == allow["headers"]
+        assert list(dialog._values) == allow["fields"]
+        assert list(dialog._SEVERITY.values()) == allow["severities"]
+        assert dialog.hint.text() == allow["boundary"]
+        assert allow["boundary"] == dependency_advisor.BOUNDARY
+        assert allow["boundary"] in dependency_advisor.to_text(report)
+        assert [dialog.minimumSize().width(), dialog.minimumSize().height()] \
+            == allow["minimum_size"]
+        assert dialog.windowTitle() == allow["title"]
+        assert dialog.target_note.text() == allow["target"].replace(
+            "«release»", "macOS Sonoma 14")
+        assert dialog.summary.text() == report.summary
+        assert dialog.go_button.text() == allow["go"]
+        assert dialog.go_button.toolTip() == allow["go_tooltip"]
+        assert dialog.dismiss_button.text() == allow["dismiss"]
+        assert dialog.dismiss_button.toolTip() == allow["dismiss_tooltip"]
+        assert dialog.restore_button.text() == allow["restore"]
+        assert dialog.show_dismissed.text() == allow["show_dismissed"]
+        assert allow["ruleset"] == dependency_advisor.RULESET
+        assert allow["store"] == dependency_advisor.default_dismissal_path().name
+        assert allow["icon"] in icons._SVG
+        # A severity word in the spec that no row ever prints is a mockup drawing
+        # a badge the code cannot produce; the three that do exist must cover the
+        # rows this two-kext argument yields.
+        printed = {dialog.tree.topLevelItem(row).text(0)
+                   for row in range(len(dialog._rows))}
+        assert printed <= set(allow["severities"])
+        assert printed == {dialog._SEVERITY[item.severity]
+                           for item in report.advisories}
+    finally:
+        dialog.deleteLater()
+        app.processEvents()
