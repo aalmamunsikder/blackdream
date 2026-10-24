@@ -13,7 +13,8 @@ in those files, and the only way to know is to open them:
 * No fetched tool may sit inside the bundle either: same reason, plus the rule that a
   binary must never land where Python could import it.
 * Every license text and vendor notice has to be where a tester will find it, inside the
-  wheel, inside the sdist and next to the launcher.
+  wheel, inside the sdist and next to the launcher -- and inside the bundle each one has
+  to be there by its bytes, not by its file name, because two vendors name theirs alike.
 * A .deb or .rpm has to install the ACPI helper as root-owned and world-unwritable at the
   path the polkit action names -- an unpacked archive cannot, which is why they exist.
 * ``SHA256SUMS.txt`` has to describe the bytes that are actually there.
@@ -71,6 +72,9 @@ SOURCE_NOTICES = (
     "src/blackdream/data/OpenCore-LICENSE.txt",
     "src/blackdream/data/OCAT-LICENSE.txt",
 )
+
+#: The names those texts go by inside a bundle, which is where two of them collide.
+NOTICE_NAMES = frozenset(Path(name).name for name in SOURCE_NOTICES)
 
 
 def required_notices(artifact: Path):
@@ -316,10 +320,27 @@ def audit_bundle(bundle: Path, problems: list) -> None:
     for notice in BUNDLE_NOTICES:
         if not any((root / notice).is_file() for root in roots):
             problems.append("nothing next to the launcher is a {}".format(notice))
-    inside = {path.name for path in bundle.rglob("*") if path.is_file()}
+    inside = set()
+    notices_by_name = {}
+    for path in bundle.rglob("*"):
+        if not path.is_file():
+            continue
+        inside.add(path.name)
+        if path.name in NOTICE_NAMES:
+            notices_by_name.setdefault(path.name, []).append(path)
+    # Two vendors call their notice ``VENDOR_NOTICE.txt``, so finding that name in the
+    # bundle says nothing about whether the text under it matches this source tree.
+    # Compare bytes: a name check passes a stale or truncated copy, and which copy a
+    # single-directory collection keeps is not something the build promises.
     for notice in SOURCE_NOTICES:
-        if Path(notice).name not in inside:
-            problems.append("bundle carries no {}".format(Path(notice).name))
+        source = ROOT / notice
+        if not source.is_file():
+            problems.append("{} has gone from the source tree".format(notice))
+            continue
+        wanted = hashlib.sha256(source.read_bytes()).hexdigest()
+        if not any(hashlib.sha256(carried.read_bytes()).hexdigest() == wanted
+                   for carried in notices_by_name.get(Path(notice).name, ())):
+            problems.append("bundle carries no copy of {}".format(notice))
     for tool in TOOLS:
         if tool in inside:
             problems.append("bundle ships {} instead of fetching and verifying it".format(tool))

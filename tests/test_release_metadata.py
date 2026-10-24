@@ -12,6 +12,7 @@ build anything, so they run in the ordinary suite and fail before a distributor 
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import io
 import os
@@ -155,6 +156,29 @@ def test_notices_for_vendored_code_travel_with_every_artifact():
         inside_package_data = relative.startswith("src/blackdream/data/")
         assert (relative in declared or relative in copied_into_bundle
                 or inside_package_data), "{} does not ship".format(relative)
+
+
+def test_two_vendored_documents_never_land_on_one_path_in_the_bundle():
+    """``VENDOR_NOTICE.txt`` is the name two upstreams give their attribution, so a list
+    that sends both into one directory ships one of them and overwrites the other. The
+    beta.3 bundle's ``licenses`` copy did exactly that, and which text survived was a
+    fact about PyInstaller's walk order rather than about this repository. This test
+    reads the spec's own list because the only other witness is a built bundle, and by
+    the time that one exists the release is public.
+    """
+    entries = None
+    for node in ast.walk(ast.parse(SPEC)):
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "NOTICE_FILES" for t in node.targets):
+            entries = ast.literal_eval(node.value)
+    assert entries, "the spec no longer names the documents it collects"
+    landing_places = {}
+    for document, target in entries:
+        assert (ROOT / document).is_file(), "{} is listed but gone".format(document)
+        landing = "{}/{}".format(target, Path(document).name)
+        assert landing not in landing_places, \
+            "{} would overwrite {}".format(document, landing_places.get(landing))
+        landing_places[landing] = document
 
 
 def test_ico_entries_are_pngs_at_the_sizes_the_app_rendered():
@@ -491,7 +515,9 @@ def test_the_audit_accepts_the_bundle_layout_pyinstaller_writes_on_macos(tmp_pat
     for notice in module.SOURCE_NOTICES:
         target = internal / notice
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(notice, encoding="utf-8")
+        # Real bytes, not a stand-in: the audit matches a notice by what it says, because
+        # two upstreams name theirs the same and one file cannot prove both shipped.
+        target.write_bytes((ROOT / notice).read_bytes())
     (internal / "licenses").mkdir()
     helper = internal / "blackdream" / "hardware" / "dump_acpi_tables.py"
     helper.parent.mkdir(parents=True)
@@ -500,6 +526,41 @@ def test_the_audit_accepts_the_bundle_layout_pyinstaller_writes_on_macos(tmp_pat
     problems = []
     module.audit_bundle(tmp_path / "BlackDream.app", problems)
     assert problems == []
+
+
+def test_the_audit_refuses_a_bundle_that_lost_one_of_two_same_named_notices(tmp_path):
+    """Two upstreams name their notice ``VENDOR_NOTICE.txt``, so an audit that asks only
+    whether that name appears anywhere in the bundle cannot tell one attribution from
+    two. Matching bytes is the honest half of the fix: a bundle carrying a stale or
+    truncated copy of a notice is now refused, which a name check could not see. The
+    collision itself is the spec's problem, guarded by
+    ``test_two_vendored_documents_never_land_on_one_path_in_the_bundle`` — in a real
+    bundle each vendored tree also copies its own notice beside its modules, so the
+    bytes rule alone would still have passed beta.3."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "verify_artifacts_notice_bytes", ROOT / "packaging" / "verify-artifacts.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    internal = (tmp_path / "BlackDream.app" / "Contents" / "Resources" / "_internal")
+    internal.mkdir(parents=True)
+    (internal / "licenses").mkdir()
+    helper = internal / "blackdream" / "hardware" / "dump_acpi_tables.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("# helper\n", encoding="utf-8")
+    for notice in module.SOURCE_NOTICES:
+        target = internal / notice
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / notice).read_bytes())
+    lost = internal / "src/ocengine/VENDOR_NOTICE.txt"
+    lost.write_text("one attribution for two upstreams\n", encoding="utf-8")
+
+    problems = []
+    module.audit_bundle(tmp_path / "BlackDream.app", problems)
+    assert [p for p in problems if "src/ocengine/VENDOR_NOTICE.txt" in p] == [
+        "bundle carries no copy of src/ocengine/VENDOR_NOTICE.txt"]
 
 
 def test_the_audit_reads_an_app_archive_without_following_its_symlinks(tmp_path):

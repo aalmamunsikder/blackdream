@@ -9,13 +9,16 @@ Stage A is the internal release-candidate stage: prove the critical workflows be
 external testers are invited. This document is that proof, in the open, so a reviewer can
 check every claim against the tree.
 
+Stage A passed and `v0.9.0-beta.3` was published on 2026-10-24. Section 7 records what the
+published bytes showed afterwards, and what was deliberately left as published.
+
 Statuses used below:
 
 * **Proved** — a named automated test in this repository's suite covers the behaviour.
 * **Run** — executed by hand on a real machine, bundle or artifact this cycle.
 * **Not proved** — nothing here demonstrates it, and what would.
 
-The suite is 850 tests (848 pass, 2 skip: one needs `pefile` to read a Windows version
+The suite is 852 tests (850 pass, 2 skip: one needs `pefile` to read a Windows version
 resource, one only runs where artifacts have been built). `docs/RELEASE-NOTES.md` states
 that number and a test pins it to `pytest --collect-only`, so a claim about coverage
 cannot drift from the coverage.
@@ -25,7 +28,7 @@ cannot drift from the coverage.
 | Stage A bullet | Status | Evidence |
 | --- | --- | --- |
 | Reproducible artifacts for each supported platform | Run | the `Build beta artifacts` workflow built the Linux, Windows and Intel-macOS artifacts from the final commit of this cycle, and every leg's own audit step passed |
-| Complete automated suite plus the UI microcopy allowlist test | Proved | 850 collected, 848 passed, 2 skipped; `tests/test_mockup_spec_allowlist.py` is 31 of them |
+| Complete automated suite plus the UI microcopy allowlist test | Proved | 852 collected, 850 passed, 2 skipped; `tests/test_mockup_spec_allowlist.py` is 31 of them |
 | The P0 checklist, including fault injection for installer writes and config saves | Mapped below | every gate in section 2; the injected faults are the second-swap failure, the cancelled write, the refused swap, the externally changed file and `test_a_value_plist_cannot_hold_fails_the_save_before_it_touches_the_disk` |
 | The installer uses Apple's trust chain; pinned runtime binaries verified before they run | Proved | `test_the_real_apple_chunklist_verifies`, `test_asset_urls_must_stay_on_apple_cdn`, `test_a_tampered_tool_is_refused_before_it_runs`, `test_unpinned_download_still_refused` |
 | Upgrade, install and uninstall behaviour; user cache and output folders not deleted | Run | the audited `.deb` was installed and then removed against a fake root inside a throwaway user namespace, the development host untouched: 472 paths appeared, 459 went away with the removal, and the thirteen that stayed are `dpkg`'s own database. Everything planted beside the package survived — another package's doc, an `index.theme` inside the shared `hicolor` tree, a plist, a settings file, an EFI output folder, an unrelated application under `/opt` — and `dpkg` named the reason: `directory '/usr/share/icons/hicolor' not empty so not removed`. The helper and its polkit action read back `root:root` `0755` and `0644`, and writable state lives in `$XDG_DATA_HOME/blackdream`, never inside the root-owned `/opt/blackdream`. **Still not proved:** a desktop session answering polkit's prompt for the installed helper. |
@@ -209,8 +212,41 @@ build-and-audit cycle before a tag.
 3. 200 % scaling and keyboard focus have been looked at on a desktop session — both are
    visible checks no test can make.
 
-**Still gated on the maintainer:** pushing the tag runs the publish job, and a published
-release is public and effectively permanent. Nothing above authorises it.
+**The gate was opened, by the maintainer.** `v0.9.0-beta.3` was tagged on `56b56d1` and
+the run it triggered published the prerelease. The published files were then downloaded
+and re-measured here with the same script: the five digests in the release's own
+`SHA256SUMS.txt` verify against the downloaded bytes, the bundle's glibc floor still reads
+2.35, no runtime tool leaked into the wheel or the sdist, and the `.deb` still owns only
+the trees it documents. The `.rpm` is the one artifact this host cannot read — it has no
+`rpm` or `rpm2cpio` — so its bytes are proved by `sha256sum -c` against that same
+checksums file, and its listing was audited by the CI leg, which does have `rpm`.
+
+**Comparing the published bundle against the tree found a weak rule, not a bad file.**
+`packaging/blackdream.spec` collected every notice into one `licenses` directory under
+`Path(document).name`, and two of them — the vendored engine's and Hardware Sniffer's — are
+both called `VENDOR_NOTICE.txt`. In the published beta 3, `licenses/VENDOR_NOTICE.txt` is
+Sniffer's text and the engine's copy of that name is gone. The audit passed it because its
+rule asked only whether a *name* appeared anywhere in the bundle, and nothing was in fact
+missing: each vendored tree carries its own copy beside the modules it belongs to
+(`_internal/ocengine/VENDOR_NOTICE.txt` and
+`_internal/blackdream/hardware/sniffer/VENDOR_NOTICE.txt`, both read back with their
+source digests), and the two `LICENSE.upstream.BSD-3-Clause` texts are byte-identical to
+each other, so everything a tester reads is present and correct. So the fix is not the
+checker's new byte rule, which would have passed beta 3 as it passed the name rule — the
+real guard is the spec itself: each document now names its landing directory
+(`licenses/ocengine`, `licenses/sniffer`), and
+`test_two_vendored_documents_never_land_on_one_path_in_the_bundle` refuses any `NOTICE_FILES`
+list in which two documents would write the same path. Matching a notice by bytes rather
+than by file name is a separate, smaller hardening: it now fails a bundle that carries a
+stale or truncated copy, which a name check cannot see.
+
+**Beta 3 stays published as it is, and the fix ships in the next build.** The alternative —
+delete the release and the tag, then re-tag the corrected commit under the same name —
+rewrites a public record, invalidates the checksums anyone may already have filed, and buys
+nothing: the directory it repairs is the copy that was never load-bearing. Each asset shows
+one download, and that download is this record's own verification pass. The corrected
+`licenses` layout and the collision test reach testers with the next tag, and their first
+real exercise is that tag's audit.
 
 ## 8. What this cycle changed in the code
 
@@ -231,3 +267,9 @@ Five P0 claims were promises rather than evidence, and each now has a test:
 * One sentence in this record was itself the finding: the two builds compared above proved
   that a digest cannot promise the published bytes are the audited ones, so the claim now
   rests on what `release.yml` actually does rather than on a checksum.
+* The published bundle was the second finding of the same kind: `licenses/` held one
+  `VENDOR_NOTICE.txt` where two upstreams had each sent one. `packaging/blackdream.spec`
+  now pairs every notice with the directory it lands in, `packaging/verify-artifacts.py`
+  recognises a notice by its bytes, and
+  `test_two_vendored_documents_never_land_on_one_path_in_the_bundle` reads the spec and
+  refuses a list in which two documents would write the same path.

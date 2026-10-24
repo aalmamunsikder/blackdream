@@ -110,7 +110,7 @@ name, and the privacy-safe diagnostic bundle.
 
 | Environment | Status |
 | --- | --- |
-| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 850 automated tests |
+| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 852 automated tests |
 | Windows 10/11 | the bundle is built and smoke-tested natively on a Windows runner; **no full workflow run on real hardware** |
 | macOS 14+ on Intel | the `.app` is built and smoke-tested natively on an Intel macOS runner; Apple Silicon runs the same Intel bundle under Rosetta 2; **no full workflow run on real hardware** |
 | CPython 3.11–3.13 | syntax-verified against the 3.11 grammar; **not executed** |

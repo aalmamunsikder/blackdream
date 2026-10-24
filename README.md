@@ -148,7 +148,8 @@ packaging/build-release.sh --bundle-only
 
 The script runs the suite, renders the icons from the in-app mark, builds the
 one-directory bundle with PyInstaller, drops the license texts beside the launcher and
-into `_internal/licenses`, smoke-tests the relocated bundle, builds the wheel and the
+into `_internal/licenses` (one subdirectory per vendor, because two vendored sources name
+their notice alike), smoke-tests the relocated bundle, builds the wheel and the
 sdist, archives the bundle and writes `SHA256SUMS.txt` for everything in
 `dist/release/`. `packaging/verify-artifacts.py` then reads the finished artifacts back
 and refuses the build if a runtime binary leaked into them or a notice is missing.

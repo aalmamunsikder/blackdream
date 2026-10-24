@@ -17,9 +17,10 @@ directories first, then the per-user tools directory -- and refuses anything on
 Python's import path. A binary shipped inside ``_MEIPASS`` would sit on that
 path, so packaging one would fight the trust rule rather than satisfy it.
 
-The license texts and vendor notices go into ``_internal/licenses`` so the terms
-travel with the binary, and the icon comes from ``packaging/icons``, which
-``packaging/make_icons.py`` renders from the mark the window itself paints.
+The license texts and vendor notices go into ``_internal/licenses``, one directory per
+vendor for the files two vendors name alike, so the terms travel with the binary, and the
+icon comes from ``packaging/icons``, which ``packaging/make_icons.py`` renders from the mark
+the window itself paints.
 """
 
 import sys
@@ -115,18 +116,32 @@ datas = []
 for package in ("ocengine", "blackdream", "certifi"):
     datas += collect_data_files(package)
 
-# The notices have to travel with the binary, not just with the source: the
-# bundled engine is BSD-3, its presets and identifier tables are MIT and BSD-3,
-# and PySide6 is LGPL-3. ``docs/THIRD-PARTY.md`` is the index that ties each of
-# them to the file that carries its text.
-for document in ("LICENSE", "README.md", "docs/THIRD-PARTY.md",
-                 "docs/RELEASE-NOTES.md", "src/ocengine/VENDOR_NOTICE.txt",
-                 "src/ocengine/LICENSE.upstream.BSD-3-Clause",
-                 "src/blackdream/hardware/sniffer/VENDOR_NOTICE.txt",
-                 "src/blackdream/hardware/sniffer/LICENSE.upstream.BSD-3-Clause"):
+# The notices have to travel with the binary, not just with the source: the bundled
+# engine is BSD-3, its presets and identifier tables are MIT and BSD-3, and PySide6 is
+# LGPL-3. ``docs/THIRD-PARTY.md`` is the index that ties each of them to the file that
+# carries its text.
+#
+# Each vendor gets its own directory because two of them ship the same file names:
+# ``VENDOR_NOTICE.txt`` and ``LICENSE.upstream.BSD-3-Clause`` exist under both
+# ``src/ocengine`` and ``src/blackdream/hardware/sniffer``. Collected into one directory
+# the second copy lands on the first, and a bundle then carries one attribution for two
+# upstream projects -- which copy wins is not something the build promises.
+NOTICE_FILES = (
+    ("LICENSE", "licenses"),
+    ("README.md", "licenses"),
+    ("docs/THIRD-PARTY.md", "licenses"),
+    ("docs/RELEASE-NOTES.md", "licenses"),
+    ("src/ocengine/VENDOR_NOTICE.txt", "licenses/ocengine"),
+    ("src/ocengine/LICENSE.upstream.BSD-3-Clause", "licenses/ocengine"),
+    ("src/blackdream/hardware/sniffer/VENDOR_NOTICE.txt", "licenses/sniffer"),
+    ("src/blackdream/hardware/sniffer/LICENSE.upstream.BSD-3-Clause", "licenses/sniffer"),
+)
+
+for document, target in NOTICE_FILES:
     source = ROOT / document
-    if source.is_file():
-        datas.append((str(source), "licenses"))
+    if not source.is_file():
+        raise SystemExit("{} is missing; the bundle must carry it".format(document))
+    datas.append((str(source), target))
 
 # The privileged ACPI helper has to exist as a file on disk, not as a module inside the
 # bundle's import archive: polkit runs it with the *system* interpreter, and the app only
