@@ -407,10 +407,29 @@ last of them, because that is the one with no hardware behind it.
 | "explicit hardware/context requirements" | Partly | the rules read only what `config.plist` claims plus the selected macOS release; nothing here consults firmware, ACPI tables or a device verdict, which is what the boundary sentence says out loud |
 | "trigger, evidence, affected key/path, confidence, dismiss/ignore option" | Proved | six fields on the row's detail pane plus `Dismiss`/`Restore`/`Show dismissed`, each pinned widget-by-widget in `tests/test_mockup_spec_allowlist.py` and in `test_the_advisor_dialog_shows_the_fields_a_reader_needs` |
 | "does not reorder kexts or alter kernel quirks" | Proved | `test_the_advisor_dialog_offers_no_way_to_change_the_config` refuses `Apply`, `Fix`, `Reorder` and `Migrate` by name and re-reads `config.plist`'s bytes; `test_dismissing_writes_the_record_file_and_nothing_else` shows the only file that changes is `advisor-dismissals.json` |
-| "Rules are versioned, explainable, and demonstrably useful in user testing" (Phase 4 exit) | **Not met** | the first two clauses are proved above; "demonstrably useful" needs a tester to classify a finding as actionable or wrong, and no build containing this screen has been distributed. The published `0.9.0-beta.3` binary does not have it. |
+| "Rules are versioned, explainable, and demonstrably useful in user testing" (Phase 4 exit) | **Not met** | the first two clauses are proved above; "demonstrably useful" needs a tester to classify a finding as actionable or wrong. The first distributed build that contains the screen is `0.9.0-beta.4` (published 2026-10-25, §10), so that classification is the one thing still missing. |
 
 False positives are the failure mode the roadmap tells us to prioritise, and the only
 measurement available without hardware is the pinned sample: `advise()` on
 `config_editor.sample_plist()` — the config the engine generates itself — returns
 `No dependency issues detected by these checks.`, which is the least the advisor can say
 about a file its own upstream produced. The next build's beta report asks for the rest.
+
+## 10. Beta 4 is published
+
+`v0.9.0-beta.4` was tagged on `b90b1a9`, and the push-triggered run `40152211139` built
+all three legs, passed their audits, and published the prerelease. It is the first
+distributed build that carries the dependency advisor, the corrected `licenses/` layout
+and the clipped-label fixes.
+
+The release has eight assets: the Linux and macOS tarballs, the Windows zip, the `.deb`,
+the `.rpm`, the wheel, the sdist and `SHA256SUMS.txt`. Three were downloaded here and
+verified against that checksums file — the Linux tarball, the wheel and the `.deb` — and
+the unpacked bundle reports `blackdream 0.9.0-beta.4 smoke ok: platform=offscreen`.
+`_internal/licenses/` now holds `ocengine/` and `sniffer/` side by side, each with its
+own `VENDOR_NOTICE.txt`, which closes the one defect the beta 3 audit found in the
+published bytes.
+
+The roadmap's Phase 4 exit gate now has a build to test against: a tester with this
+release can open `Configure EFI ▸ Dependencies…`, classify a finding, and press
+`Dismiss`, which is the evidence §9 says is still missing.
