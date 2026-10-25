@@ -5119,10 +5119,14 @@ class _WrapRow(QWidget):
     def add(self, widget: QWidget) -> None:
         widget.setParent(self)
         self._children.append(widget)
-        self._reserve_height()
+        self._reserve()
         self.updateGeometry()
         if self.width() > 0:
             self._place()
+
+    def _flexible(self, child: QWidget) -> bool:
+        """A field scrolls its text, so it may take less than its hint; a label may not."""
+        return isinstance(child, QLineEdit)
 
     def _needed(self, child: QWidget) -> QSize:
         """What the child will really occupy: a minimum beats a hint.
@@ -5165,6 +5169,13 @@ class _WrapRow(QWidget):
             heights = [size.height() for size in sized]
             widths = [size.width() for size in sized]
             gap = (len(row) - 1) * self._spacing
+            # A line holds one child only when that child alone is wider than the
+            # row -- the Keys card between its two fixed-width neighbours is
+            # narrower than the search field's maximum. A field gives up the
+            # difference; a button would lose letters, and its width floor has
+            # already kept the row from getting this narrow.
+            if len(row) == 1 and widths[0] > width and self._flexible(row[0]):
+                widths[0] = width
             x = max(width - sum(widths) - gap, 0) if self._right else 0
             line_height = max(heights)
             for index, child in enumerate(row):
@@ -5172,6 +5183,23 @@ class _WrapRow(QWidget):
                                   widths[index], heights[index])
                 x += widths[index] + self._spacing
             y += line_height + self._line_spacing
+
+    def _reserve(self) -> None:
+        self._reserve_width()
+        self._reserve_height()
+
+    def _reserve_width(self) -> None:
+        """Refuse to be narrower than the widest label the row has to show.
+
+        Without this the parent header layout squeezes the row itself -- not just
+        its buttons -- and ``_place`` would have nowhere to put a label it cannot
+        shrink. Flexible fields are excluded: they are allowed to be the difference.
+        """
+        floors = [self._needed(child).width() for child in self._children
+                  if not self._flexible(child)]
+        needed = max(floors, default=0)
+        if self.minimumWidth() != needed:
+            self.setMinimumWidth(needed)
 
     def _reserve_height(self) -> None:
         """Pin the height the current width needs.
@@ -5188,12 +5216,12 @@ class _WrapRow(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._reserve_height()
+        self._reserve()
         self._place()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        self._reserve_height()
+        self._reserve()
         self._place()
 
     def changeEvent(self, event) -> None:
@@ -5201,7 +5229,7 @@ class _WrapRow(QWidget):
         # Style and font polish arrive after the first show event, and a platform
         # style can make every label a few pixels wider than the one measured here.
         if event.type() in (QEvent.StyleChange, QEvent.FontChange):
-            self._reserve_height()
+            self._reserve()
             self._place()
 
     def sizeHint(self) -> QSize:

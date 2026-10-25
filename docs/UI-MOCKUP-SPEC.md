@@ -1131,7 +1131,10 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
   platform font is wider than the reference font the rail grows past its 200 px floor and an action
   row takes a second line instead of squeezing a button. The rows that wrap in the running app are
   the Configure page's header action slot, the config card's action row, the Keys toolbar's two rows
-  and the Keys and Validation card headers. A mockup should never draw a clipped label.
+  and the Keys and Validation card headers. A mockup should never draw a clipped label. The one
+  control that does give up width is the Keys card's search field (down to its 150 px floor): a
+  field scrolls the text inside it, and the card between its two fixed-width neighbours can be
+  narrower than the field's 190 px maximum — the button beside it wraps instead.
 - The theme picker, the diagnostics button and all six sidebar items are keyboard-reachable. The
   theme picker changes the theme immediately; it does not need a Save button, and no utility view
   has one.

@@ -304,11 +304,18 @@ def test_a_wider_platform_font_wraps_instead_of_losing_letters(make_window, qapp
                     geometry = child.geometry()
                     label = (child.text() if hasattr(child, "text")
                              else child.objectName())
-                    if geometry.width() < child.sizeHint().width():
+                    # A search field scrolls its text and the Keys card between
+                    # its fixed-width neighbours is narrower than the field's
+                    # maximum, so the field is entitled to min(hint, max, row).
+                    # A button or label is entitled to its whole hint.
+                    entitled = child.sizeHint().width()
+                    if row._flexible(child):
+                        entitled = min(entitled, child.maximumWidth(),
+                                       row.width())
+                    if geometry.width() < entitled:
                         offenders.append("{}: {!r} is {} px in a {} px "
                                          "geometry".format(
-                                             name, label,
-                                             child.sizeHint().width(),
+                                             name, label, entitled,
                                              geometry.width()))
                     if geometry.right() > row.width():
                         offenders.append("{}: {!r} runs past the row".format(
