@@ -1,14 +1,39 @@
-# BlackDream 0.9.0-beta.4
+# BlackDream 0.9.0-beta.5
 
 Released 2026-10-25 · pre-release · MIT licensed · no account, no telemetry, no ads,
 no update check.
 
-This is the fourth build distributed outside the development machine. It is a **beta**:
+This is the fifth build distributed outside the development machine. It is a **beta**:
 it asks for reports, it does not promise coverage. The feature set is frozen at what
 `docs/UI-MOCKUP-SPEC.md` v3.7 marks *built*; anything labelled *concept* or *planned* is
 not in this binary.
 
-## What is new in beta 4
+## What is new in beta 5
+
+* **A checked boolean shows a tick.** The value tree, the `Selected entry` inspector's
+  `On` box, the data dialog's `Show as text` and the advisor's `Show dismissed` filled a
+  checked box with the accent colour and no glyph, so `true` read as a status dot. Each
+  one now draws a check mark in a colour chosen for the theme, white on the light theme's
+  blue and near-black on the dark theme's lighter blue.
+* **A dropdown is one rounded surface.** Fusion wrapped the styled list in its own square,
+  shadowed popup frame, so the 10 px corners showed as a rounded list on a grey plate. On
+  Windows and Linux the popup is now transparent, frameless and shadowless; macOS keeps
+  its native menu-style popup. The Add-key dialog's plain combos get the same shape.
+* **No header or cell is cut at the window floor.** At 1160 px the devices table painted
+  `macOS suppo`, the release grid cut `macOS High Si`, and the changes dialog elided its
+  long values and its own empty-state sentence. The dashboard now splits its row 40 : 60,
+  release columns size to their names with the full name as a header tooltip, and every
+  changes cell carries its text as a tooltip; with no edits the dialog shows one disabled
+  row spanning the table. The geometry audit behind these findings now measures spanned
+  rows at their true width and reports nothing across eight views, both themes, three
+  window sizes and twelve dialogs.
+* Nothing in the engine, the generated config, the installer or the file-writing rules
+  changed in this build.
+
+## Carried from beta 4
+
+Beta 4 added the dependency advisor, gave every vendor notice its own name, and sized the
+window's labels from their text. All three are unchanged in beta 5.
 
 * **Dependency advisories** (`Configure EFI`, `Dependencies…`). Reads the kext, driver,
   boot-arg and quirk relationships the open `config.plist` already claims and reports the
@@ -39,7 +64,7 @@ not in this binary.
 ## Carried from beta 3
 
 Beta 3 added six surfaces around the analysis the app already produces: two comparisons,
-two local stores, one checklist and one preview. They are unchanged in beta 4. Every one of
+two local stores, one checklist and one preview. They are unchanged in beta 5. Every one of
 them reads. None of them grades a device, writes a file, mounts a disk, boots anything,
 uploads anything or claims that a clean result proves a boot.
 
@@ -274,11 +299,11 @@ Every build publishes these files into `dist/release/`:
 
 | Name | What it is |
 | --- | --- |
-| `BlackDream-0.9.0-beta.4-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
-| `blackdream_0.9.0b4_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
-| `blackdream-0.9.0b4-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
-| `blackdream-0.9.0b4-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
-| `blackdream-0.9.0b4.tar.gz` | the source distribution |
+| `BlackDream-0.9.0-beta.5-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
+| `blackdream_0.9.0b5_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
+| `blackdream-0.9.0b5-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
+| `blackdream-0.9.0b5-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
+| `blackdream-0.9.0b5.tar.gz` | the source distribution |
 
 A Linux bundle needs glibc 2.35 or newer. That is not a preference: the build measures
 the versioned symbols inside the shipped Qt and glib libraries and refuses to publish a

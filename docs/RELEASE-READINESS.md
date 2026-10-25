@@ -1,9 +1,9 @@
-# Release readiness record — Stage A, through 0.9.0-beta.4
+# Release readiness record — Stage A, through 0.9.0-beta.5
 
 Recorded 2026-10-24 against `BlackDream_Beta_Release_Recommendation.md` (2026-10-23),
 which was written for specification v3.3 and suggested the identifier `0.9.0-beta.1`.
 The record began with v3.6 / `0.9.0-beta.3`; the distributed build is v3.7 /
-`0.9.0-beta.4`, so the recommendation's *screen numbers and version label are stale*;
+`0.9.0-beta.5`, so the recommendation's *screen numbers and version label are stale*;
 its gates are not, and they are judged here one by one.
 
 Stage A is the internal release-candidate stage: prove the critical workflows before
@@ -12,7 +12,8 @@ check every claim against the tree.
 
 Stage A passed and `v0.9.0-beta.3` was published on 2026-10-24; the defects the published
 bytes exposed shipped fixed as `v0.9.0-beta.4` on 2026-10-25. Section 7 records what each
-published build showed afterwards, and section 10 records beta 4 in full.
+published build showed afterwards, and section 10 records beta 4 in full. Beta 5 is a
+UI-only follow-up on the same engine and spec; section 11 records it.
 
 Statuses used below:
 
