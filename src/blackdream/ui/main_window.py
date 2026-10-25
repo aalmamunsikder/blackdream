@@ -4408,6 +4408,7 @@ class MainWindow(QMainWindow):
             "Detected {} from your hardware report.".format(
                 _count(len(self._verdicts), "device")))
         if not self._verdicts:
+            self.verdict_tree.fit_names(0)
             self._reset_details()
             return
         self._refresh_statuses()
@@ -4432,6 +4433,9 @@ class MainWindow(QMainWindow):
         widest = max((self.verdict_tree.fontMetrics().horizontalAdvance(item.text(3))
                       for item in self._items), default=0)
         self.verdict_tree.fit_status(widest)
+        widest_name = max((QFontMetrics(item.font(0)).horizontalAdvance(item.text(0))
+                           for item in self._items), default=0)
+        self.verdict_tree.fit_names(widest_name)
         if self._current_verdict in self._verdicts:
             self._show_details(self._current_verdict)
         self.verdict_tree.viewport().update()
@@ -7140,10 +7144,20 @@ class _VerdictTree(QTreeWidget):
         super().__init__()
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._status_width = self._STATUS_MIN
+        #: What the name column wants: its floor, or the widest name on screen.
+        self._device_width = self._DEVICE_MIN
         # The vertical scrollbar takes width from the viewport; fitting only on
         # resize left the Status column tucked under it.
         self.verticalScrollBar().rangeChanged.connect(self._fit_columns)
         self._reserve_width()
+
+    def fit_names(self, widest_text: int) -> None:
+        # The support column gives way before a name loses a letter -- it is the
+        # one that repeats in the details pane and on the tooltip.
+        width = max(self._DEVICE_MIN, widest_text + 4)
+        if width != self._device_width:
+            self._device_width = width
+            self._fit_columns()
 
     def fit_status(self, widest_text: int) -> None:
         # "Not supported" is wider than the cells the table first shipped with;
@@ -7187,10 +7201,12 @@ class _VerdictTree(QTreeWidget):
 
     def _fit_columns(self, *_args) -> None:
         available = self.viewport().width()
+        # Support takes the room left over, never more than its own ceiling and
+        # never so much that the name column drops below the names it shows.
         support = min(self._SUPPORT_MAX,
                       max(self._support_floor(),
                           available - self._CLASS_WIDTH - self._status_width
-                          - self._DEVICE_MIN))
+                          - self._device_width))
         if self.columnWidth(2) != support:
             self.setColumnWidth(2, support)
         if self.columnWidth(3) != self._status_width:
