@@ -304,7 +304,21 @@ rows are wrap rows now, which is what the no-clipped-label rule says a row does 
 not hold it: the config card's actions, the Keys header's search-and-presets group and the
 Validation header's three actions each stay their own width and wrap. `_WrapRow` also honours a
 child's `maximumWidth`, so the search pill keeps the 150–190 px band `QHBoxLayout` used to give it.
-The third run is the one that has to go green on all three legs, or this paragraph grows again.
+The third run failed on Windows at the one control those rows did not cover.
+
+**It was the search field, and it was not a label.** Run `40150828465` passed ubuntu-22.04 and
+macos-15-intel and failed Windows with two findings against the
+same unlabeled child — the Keys card's search field drawn 190 px wide, its maximum, in the 173 px the
+card had left, so it ran past the row's edge. The row was squeezed because its parent header layout
+treats `minimumSizeHint` as a hint rather than a floor. `_WrapRow` now sets its own minimum width to
+its widest written label, so the header cannot compress a row below what its buttons need, and a
+`QLineEdit` — the one control whose text scrolls instead of losing letters — gives up the difference
+when it is alone on a line, down to its 150 px minimum. The wide-font sweep now measures a field
+against `min(hint, maximum, row width)` and every other child against its whole hint, so a
+legitimately narrower field cannot hide a clipped button. Run `40151344123` is the first green matrix
+on all three legs at `762c2a8`: ubuntu-22.04 919 passed / 4 skipped, windows-latest 890 / 33,
+macos-15-intel 887 / 36, the same 923 tests on each. `UI-MOCKUP-SPEC.md` §14 now names the search
+field as the one control that yields width, and says that the button beside it wraps instead.
 
 **200 % scaling found nothing new, and that is the finding.** Qt doubles the device pixels and
 leaves the logical geometry alone, so a card that fits at 1280 logical pixels fits at 2560
