@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QSize, Qt  # noqa: E402
+from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QBoxLayout, QLabel, QPushButton, QWidget)
@@ -231,12 +232,87 @@ def test_no_button_is_narrower_than_its_own_label(make_window, qapp):
                     button.width()))
     assert clipped == []
 
-    # The rail's 200 px is a spec promise, so the tagline beside the mark is what has
-    # to give -- and a clipped tagline is clipped in every one of the 21 screenshots.
+    # The rail is 200 px at the reference font, but on a runner whose font is
+    # wider it grows by the few pixels the tagline needs (the next test), so the
+    # assertion is against the rail that was actually laid out.
     hint = window.findChild(QLabel, "brandHint")
     assert hint.sizeHint().width() <= hint.width(), \
         "{!r} needs {} px in {} px".format(hint.text(), hint.sizeHint().width(),
                                            hint.width())
+
+
+def test_a_wider_platform_font_wraps_instead_of_losing_letters(make_window, qapp):
+    """The fonts on CI are not this machine's font.
+
+    The first run of the button sweep above went green here and red on both CI
+    legs: on ubuntu-22.04 the tagline needed 124 px in 121, and on Windows
+    ``Configure EFI`` was squeezed into 173 px while the Configure actions lost
+    width in the header and the Keys toolbar. A platform font is a few per cent
+    wider than the one the geometry was measured with, so the fix cannot be a
+    set of wider constants -- the rail grows past its 200 px reference and the
+    action rows take a second line. This test manufactures that difference with
+    letter spacing, which reaches even the sizes the stylesheet pins, and checks
+    the two promises: every label keeps its whole width, and every wrapped line
+    is inside the row's own height.
+    """
+    base = QFont(qapp.font())
+    wide = QFont(base)
+    wide.setLetterSpacing(QFont.AbsoluteSpacing, 1.5)
+    qapp.setFont(wide)
+    try:
+        window = make_window()
+        window.resize(window.minimumSize())
+        window.show()
+        for _ in range(6):
+            qapp.processEvents()
+
+        assert window._rail.width() >= 200
+        hint = window.findChild(QLabel, "brandHint")
+        assert hint.sizeHint().width() <= hint.width(), \
+            "{!r} needs {} px in {} px".format(hint.text(),
+                                               hint.sizeHint().width(),
+                                               hint.width())
+
+        wrapped = 0
+        for name in _VIEWS:
+            window._show_view(name)
+            for _ in range(4):
+                qapp.processEvents()
+            for button in window.findChildren(QPushButton):
+                if not button.isVisible() or not button.text().strip():
+                    continue
+                assert button.width() >= button.sizeHint().width(), \
+                    "{}: {!r} squeezed into {} px".format(
+                        name, button.text(), button.width())
+            for row in window.findChildren(ui._WrapRow):
+                if not row.isVisible():
+                    continue
+                assert row.height() == row.heightForWidth(row.width()), \
+                    "{}: row is {} px tall but its lines need {}".format(
+                        name, row.height(), row.heightForWidth(row.width()))
+                shown = [child for child in row._children if child.isVisible()]
+                if len(row._lines(row.width())) > 1:
+                    wrapped += 1
+                for index, child in enumerate(shown):
+                    geometry = child.geometry()
+                    assert geometry.width() >= child.sizeHint().width(), \
+                        "{}: {!r} is {} px in a {} px geometry".format(
+                            name, child.text() if hasattr(child, "text")
+                            else child.objectName(), child.sizeHint().width(),
+                            geometry.width())
+                    assert geometry.right() <= row.width(), \
+                        "{}: {!r} runs past the row".format(
+                            name, geometry)
+                    assert geometry.bottom() <= row.height(), \
+                        "{}: {!r} is drawn below the row".format(
+                            name, geometry)
+                    for other in shown[index + 1:]:
+                        assert not geometry.intersects(other.geometry()), \
+                            "{}: {!r} overlaps {!r}".format(
+                                name, geometry, other.geometry())
+        assert wrapped > 0, "no row wrapped, so the font was not wider"
+    finally:
+        qapp.setFont(base)
 
 
 def test_the_keyboard_reaches_what_the_spec_promises(make_window, qapp):

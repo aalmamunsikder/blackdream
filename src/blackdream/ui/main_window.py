@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import (
-    QPointF, QRectF, QSettings, QSize, Qt, QTimer, QUrl)
+    QEvent, QPointF, QRectF, QSettings, QSize, Qt, QTimer, QUrl)
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QDesktopServices, QDragEnterEvent, QDropEvent,
     QFont, QFontMetrics, QGuiApplication, QIcon, QKeySequence, QLinearGradient,
@@ -552,6 +552,7 @@ class MainWindow(QMainWindow):
         bar = QFrame()
         bar.setObjectName("sidebar")
         bar.setFixedWidth(200)
+        self._rail = bar
         layout = QVBoxLayout(bar)
         layout.setContentsMargins(13, 14, 13, 14)
         layout.setSpacing(3)
@@ -580,6 +581,8 @@ class MainWindow(QMainWindow):
         hint = QLabel("OpenCore, made simple.")
         hint.setObjectName("brandHint")
         hint.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._rail_name = label
+        self._rail_hint = hint
         names.addWidget(label)
         names.addWidget(hint)
         brand.addWidget(mark, 0, Qt.AlignVCenter)
@@ -620,7 +623,27 @@ class MainWindow(QMainWindow):
         self.settings_button = self.secondary_buttons[0]
         self.help_button = self.secondary_buttons[1]
         self.donate_button = self.secondary_buttons[2]
+        self._fit_sidebar()
         return bar
+
+    def _fit_sidebar(self) -> None:
+        """200 px is the rail's promise, not its ceiling.
+
+        The rail holds the brand lockup and seven nav labels, and how wide those
+        need to be is the platform font's answer, not this machine's: on a runner
+        whose font is a few per cent wider the tagline lost its last letter and
+        "Configure EFI" drew as "Configure EI". A rail that grows by a dozen pixels
+        is a smaller lie than a label with a letter missing from it, so the width is
+        measured from the widest thing in it and 200 is only the floor.
+        """
+        brand = 46 + 6 + max(self._rail_name.sizeHint().width(),
+                             self._rail_hint.sizeHint().width())
+        widest = max([brand] + [button.sizeHint().width()
+                                for button in (self.nav_buttons
+                                               + self.secondary_buttons)])
+        needed = max(200, widest + 26 + 2)
+        if self._rail.width() != needed:
+            self._rail.setFixedWidth(needed)
 
     def _build_content(self) -> QWidget:
         content = QFrame()
@@ -651,12 +674,11 @@ class MainWindow(QMainWindow):
         header_layout.addLayout(titles, 1)
 
         # The Configure page owns the header's action slot; every other page
-        # leaves it empty so the subtitle keeps the full width.
-        self.page_actions = QWidget()
+        # leaves it empty so the subtitle keeps the full width. It wraps rather
+        # than shrinking a button, because this slot holds five controls and the
+        # platform font decides how wide they are.
+        self.page_actions = _WrapRow(spacing=6)
         self.page_actions.setObjectName("pageActions")
-        self.page_actions_layout = QHBoxLayout(self.page_actions)
-        self.page_actions_layout.setContentsMargins(0, 0, 0, 0)
-        self.page_actions_layout.setSpacing(6)
         self.page_actions.setVisible(False)
         header_layout.addWidget(self.page_actions, 0, Qt.AlignVCenter)
         layout.addWidget(header)
@@ -1334,9 +1356,8 @@ class MainWindow(QMainWindow):
         self.config_schema_chip = QLabel(
             "OpenCore {}".format(config_editor.OPEN_CORE_VERSION))
         self.config_schema_chip.setObjectName("configChip")
-        self.page_actions_layout.addWidget(self.config_validation_chip)
-        self.page_actions_layout.addWidget(self.config_schema_chip)
-        self.page_actions_layout.addSpacing(4)
+        self.page_actions.add(self.config_validation_chip)
+        self.page_actions.add(self.config_schema_chip)
 
         self.config_open = QPushButton("Open config\u2026")
         self.config_open.setObjectName("outline")
@@ -1355,7 +1376,7 @@ class MainWindow(QMainWindow):
         self.config_save.clicked.connect(self._on_config_save)
         for button in (self.config_open, self.config_validate,
                        self.config_save):
-            self.page_actions_layout.addWidget(button)
+            self.page_actions.add(button)
 
         self.configure_card = _Card(
             "config.plist",
@@ -1424,10 +1445,8 @@ class MainWindow(QMainWindow):
             "as they are.")
         toolbar = QVBoxLayout()
         toolbar.setSpacing(6)
-        history_row = QHBoxLayout()
-        history_row.setSpacing(6)
-        edit_row = QHBoxLayout()
-        edit_row.setSpacing(6)
+        history_row = _WrapRow(spacing=6, right=False)
+        edit_row = _WrapRow(spacing=6, right=False)
         self.config_undo = QPushButton("Undo")
         self.config_undo.setObjectName("outline")
         self.config_undo.setMinimumHeight(30)
@@ -1466,15 +1485,15 @@ class MainWindow(QMainWindow):
         self.config_down.clicked.connect(lambda: self._move_config_item(1))
         # Two rows, because eight buttons do not fit the card at the window's own
         # minimum width: a single row squeezed them until "Changes…" drew as "hanges".
+        # Each row wraps in turn, because how many fit is the platform font's call,
+        # not ours.
         for button in (self.config_undo, self.config_redo, self.config_changes):
-            history_row.addWidget(button)
-        history_row.addStretch(1)
+            history_row.add(button)
         for button in (self.config_add_key, self.config_add_item,
                        self.config_remove, self.config_up, self.config_down):
-            edit_row.addWidget(button)
-        edit_row.addStretch(1)
-        toolbar.addLayout(history_row)
-        toolbar.addLayout(edit_row)
+            edit_row.add(button)
+        toolbar.addWidget(history_row)
+        toolbar.addWidget(edit_row)
         self.config_search = QLineEdit()
         self.config_search.setObjectName("configSearch")
         self.config_search.setPlaceholderText("Search keys\u2026")
@@ -2062,6 +2081,9 @@ class MainWindow(QMainWindow):
             icon_color = "#ffffff" if selected else color
             button.setIcon(icons.icon(
                 _NAV_ICON.get(button.text(), "dot"), icon_color, 16))
+        # An icon is part of a button's sizeHint, so the rail is measured again
+        # once the icons exist rather than at build time without them.
+        self._fit_sidebar()
 
     def _active_section(self) -> str:
         return "Build EFI" if self._view in _BUILD_VIEWS else self._view
@@ -5062,6 +5084,138 @@ class _Combo(QComboBox):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.drawPixmap(self.width() - 24, (self.height() - 16) // 2,
                            icons.pixmap("chevron-down", self._palette["muted"], 16))
+
+
+class _WrapRow(QWidget):
+    """A right-aligned row of controls that takes a second line instead of losing letters.
+
+    Every button row here is squeezed by the same two things: the window's minimum
+    width is a spec promise, and the platform font is a few per cent wider on some
+    runner than on the machine the row was measured on. A squeezed ``QPushButton``
+    does not refuse -- it draws ``Sa`` for ``Save``. Letting the row wrap keeps the
+    row's minimum width at its widest child, so no label is ever cut and the window
+    never has to grow past its own promise.
+    """
+
+    def __init__(self, parent=None, spacing: int = 6,
+                 line_spacing: int = 4, right: bool = True) -> None:
+        super().__init__(parent)
+        self._spacing = spacing
+        self._line_spacing = line_spacing
+        self._right = right
+        self._children: list[QWidget] = []
+        policy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def add(self, widget: QWidget) -> None:
+        widget.setParent(self)
+        self._children.append(widget)
+        self._reserve_height()
+        self.updateGeometry()
+        if self.width() > 0:
+            self._place()
+
+    def _needed(self, child: QWidget) -> QSize:
+        """What the child will really occupy: a minimum beats a hint.
+
+        ``setMinimumHeight(36)`` on a button whose style hint is 31 px means the
+        geometry call below is clamped by Qt -- and a row that placed the next line
+        at 31 + spacing drew it one pixel into the button above.
+        """
+        hint = child.sizeHint()
+        floor = child.minimumSizeHint()
+        return QSize(max(hint.width(), child.minimumWidth(), floor.width()),
+                     max(hint.height(), child.minimumHeight(), floor.height()))
+
+    def _lines(self, width: int) -> list[list[QWidget]]:
+        rows: list[list[QWidget]] = []
+        row: list[QWidget] = []
+        used = 0
+        for child in self._children:
+            needed = self._needed(child).width()
+            if row and used + self._spacing + needed > width:
+                rows.append(row)
+                row = []
+                used = 0
+            if row:
+                used += self._spacing
+            row.append(child)
+            used += needed
+        if row:
+            rows.append(row)
+        return rows
+
+    def _place(self) -> None:
+        width = max(self.width(), 1)
+        y = 0
+        for row in self._lines(width):
+            sized = [self._needed(child) for child in row]
+            heights = [size.height() for size in sized]
+            widths = [size.width() for size in sized]
+            gap = (len(row) - 1) * self._spacing
+            x = max(width - sum(widths) - gap, 0) if self._right else 0
+            line_height = max(heights)
+            for index, child in enumerate(row):
+                child.setGeometry(x, y + (line_height - heights[index]) // 2,
+                                  widths[index], heights[index])
+                x += widths[index] + self._spacing
+            y += line_height + self._line_spacing
+
+    def _reserve_height(self) -> None:
+        """Pin the height the current width needs.
+
+        Qt honours ``heightForWidth`` in some parent layouts and not others: a
+        vertical box around the Configure toolbar gave a two-line row a one-line
+        height and drew the second line over the search field. A fixed height is
+        the row's own promise, and it depends only on the width, so recomputing
+        it on resize cannot feed back into itself.
+        """
+        needed = self.heightForWidth(max(self.width(), 1))
+        if self.minimumHeight() != needed or self.maximumHeight() != needed:
+            self.setFixedHeight(needed)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._reserve_height()
+        self._place()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._reserve_height()
+        self._place()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        # Style and font polish arrive after the first show event, and a platform
+        # style can make every label a few pixels wider than the one measured here.
+        if event.type() in (QEvent.StyleChange, QEvent.FontChange):
+            self._reserve_height()
+            self._place()
+
+    def sizeHint(self) -> QSize:
+        sized = [self._needed(child) for child in self._children]
+        return QSize(sum(size.width() for size in sized)
+                     + max(len(sized) - 1, 0) * self._spacing,
+                     self._tallest())
+
+    def minimumSizeHint(self) -> QSize:
+        if not self._children:
+            return QSize(0, 0)
+        return QSize(max(self._needed(child).width() for child in self._children),
+                     self._tallest())
+
+    def heightForWidth(self, width: int) -> int:
+        rows = self._lines(max(width, 1))
+        return sum(max(self._needed(child).height() for child in row)
+                   for row in rows) + self._line_spacing * max(len(rows) - 1, 0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def _tallest(self) -> int:
+        return max((self._needed(child).height() for child in self._children),
+                   default=0)
 
 
 class _Card(QFrame):

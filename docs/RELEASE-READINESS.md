@@ -18,7 +18,7 @@ Statuses used below:
 * **Run** — executed by hand on a real machine, bundle or artifact this cycle.
 * **Not proved** — nothing here demonstrates it, and what would.
 
-The suite is 922 tests (920 pass, 2 skip: one needs `pefile` to read a Windows version
+The suite is 923 tests (921 pass, 2 skip: one needs `pefile` to read a Windows version
 resource, one only runs where artifacts have been built). `docs/RELEASE-NOTES.md` states
 that number and a test pins it to `pytest --collect-only`, so a claim about coverage
 cannot drift from the coverage.
@@ -28,7 +28,7 @@ cannot drift from the coverage.
 | Stage A bullet | Status | Evidence |
 | --- | --- | --- |
 | Reproducible artifacts for each supported platform | Run | the `Build beta artifacts` workflow built the Linux, Windows and Intel-macOS artifacts from the final commit of this cycle, and every leg's own audit step passed |
-| Complete automated suite plus the UI microcopy allowlist test | Proved | 922 collected, 920 passed, 2 skipped; `tests/test_mockup_spec_allowlist.py` is 32 of them |
+| Complete automated suite plus the UI microcopy allowlist test | Proved | 923 collected, 921 passed, 2 skipped; `tests/test_mockup_spec_allowlist.py` is 32 of them |
 | The P0 checklist, including fault injection for installer writes and config saves | Mapped below | every gate in section 2; the injected faults are the second-swap failure, the cancelled write, the refused swap, the externally changed file and `test_a_value_plist_cannot_hold_fails_the_save_before_it_touches_the_disk` |
 | The installer uses Apple's trust chain; pinned runtime binaries verified before they run | Proved | `test_the_real_apple_chunklist_verifies`, `test_asset_urls_must_stay_on_apple_cdn`, `test_a_tampered_tool_is_refused_before_it_runs`, `test_unpinned_download_still_refused` |
 | Upgrade, install and uninstall behaviour; user cache and output folders not deleted | Run | the audited `.deb` was installed and then removed against a fake root inside a throwaway user namespace, the development host untouched: 472 paths appeared, 459 went away with the removal, and the thirteen that stayed are `dpkg`'s own database. Everything planted beside the package survived — another package's doc, an `index.theme` inside the shared `hicolor` tree, a plist, a settings file, an EFI output folder, an unrelated application under `/opt` — and `dpkg` named the reason: `directory '/usr/share/icons/hicolor' not empty so not removed`. The helper and its polkit action read back `root:root` `0755` and `0644`, and writable state lives in `$XDG_DATA_HOME/blackdream`, never inside the root-owned `/opt/blackdream`. **Still not proved:** a desktop session answering polkit's prompt for the installed helper. |
@@ -267,14 +267,31 @@ Three of the four were clipping, and none of them could be seen in the published
 every frame is 1536 px wide. The Configure EFI `Keys` card held eight buttons in one row and at
 the window's own minimum width squeezed `Changes…` into `hanges`; it is now two rows, `Undo`, `Redo`,
 `Changes…` over `Add key`, `Add item`, `Remove`, `Up`, `Down`. The brand tagline lost its last
-letter — the 200 px rail is a spec promise, so the row's own margins and spacing gave way instead,
-and `OpenCore, made simple.` now reads whole in all fourteen window frames. The Help card's
-"Nothing has been copied or saved." was squeezed beside two buttons into a narrow column and got
-its own line. The fourth was the progress card's stage names, which lost their last glyph
-mid-letter; the row now elides to the card's width and the tooltip carries the whole line.
+letter — the rail was 200 px, so the row's own margins and spacing gave way instead,
+and `OpenCore, made simple.` reads whole in all fourteen window frames on this machine's font. The
+Help card's "Nothing has been copied or saved." was squeezed beside two buttons into a narrow
+column and got its own line. The fourth was the progress card's stage names, which lost their last
+glyph mid-letter; the row now elides to the card's width and the tooltip carries the whole line.
 `test_no_button_is_narrower_than_its_own_label` walks all eight views at `minimumSize()` and
 refuses any button narrower than its own label — it fails on the pre-fix layout with seven
 offenders, which is what makes it worth having.
+
+**That fix went to CI, and the same sweep failed on all three legs — because their fonts are not
+this machine's font.** Run `40099476730` failed every platform in the test step: on macOS the
+tagline needed 125 px in 121, on ubuntu-22.04 it needed 124 in 121, and on Windows the tagline
+assertion was never reached because the sweep found fourteen offenders first — `Configure EFI` was
+squeezed into 173 px, and the Configure header's three file buttons plus the Keys toolbar's
+`Add key` / `Add item` / `Remove` were all narrower than their own labels. Wide constants cannot
+fix a font whose metrics are decided by the platform. The rail is now 200 px at the reference font
+and a floor — it grows by the pixels its longest label needs, a few on ubuntu-22.04 and a dozen or
+more on Windows — and both action rows are `_WrapRow`s that take a second line and reserve their
+own height, because a vertical box around the Keys toolbar ignored `heightForWidth` and drew a
+second line over the search field. `UI-MOCKUP-SPEC.md` §3 and §14 now state the floor and the
+no-clipped-label rule. `test_a_wider_platform_font_wraps_instead_of_losing_letters` manufactures
+the difference with letter spacing (which reaches even the sizes the stylesheet pins), walks all
+eight views, and asserts that every label keeps its width and every wrapped line stays inside its
+row. The frames do not change, because the reference font still measures the rail at exactly
+200 px.
 
 **200 % scaling found nothing new, and that is the finding.** Qt doubles the device pixels and
 leaves the logical geometry alone, so a card that fits at 1280 logical pixels fits at 2560

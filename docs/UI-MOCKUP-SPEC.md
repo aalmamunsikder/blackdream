@@ -171,7 +171,7 @@ folder, with no terminal.
 | Surfaces | Wallpaper **inside** the window, a frosted sidebar and content veil above it, and translucent cards, fields and a dark log above those. No desktop wallpaper outside the window, no floating panel, no inset band and no drop shadows |
 | Platforms | macOS 14+, Windows 10/11, Linux (X11 + Wayland) |
 | Engine | Vendored OpCore Simplify (BSD-3), driven headless |
-| Navigation | Fixed 200 px sidebar with three workflow sections: `Installer` · `Build EFI` · `Configure EFI`, plus three utility views at the bottom: `Settings` · `Help` · `Donate`. `Build EFI` shows three segment tabs: `Compatibility` · `Build` · `Logs` |
+| Navigation | 200 px sidebar with three workflow sections: `Installer` · `Build EFI` · `Configure EFI`, plus three utility views at the bottom: `Settings` · `Help` · `Donate`. 200 px is the reference width, not a ceiling: on a platform whose font is wider the rail grows by the pixels its labels need, so no item ever loses a letter. `Build EFI` shows three segment tabs: `Compatibility` · `Build` · `Logs` |
 | Input model | Report file is dropped or picked; paths are never typed |
 | Output | An EFI **folder**. Nothing is mounted, written to, or repaired |
 
@@ -282,8 +282,10 @@ widget instances* — nothing is duplicated:
   `View` menu. The search is a 204 × 28 pill in the `Detected devices` card header (§7.5). On
   `Configure EFI` alone, the header's right edge carries the page action slot: the validation and
   schema chips, then `Open config…`, `Validate` and the primary `Save` (§15).
-- **Sidebar:** 200 px wide, frosted, with 13 px left/right padding and 14 px top/bottom, and a 1 px
-  right border. Top: a 46 px `BD` mark with `BlackDream` / `OpenCore, made simple.` beside it. Then
+- **Sidebar:** 200 px wide at the reference font, frosted, with 13 px left/right padding and 14 px
+  top/bottom, and a 1 px right border. On a platform whose font is wider the rail grows by the few
+  pixels its longest label needs — 200 px is a floor, and a label is never clipped to keep it. Top:
+  a 46 px `BD` mark with `BlackDream` / `OpenCore, made simple.` beside it. Then
   a `WORKFLOW` caption and the three section buttons (40 px minimum height): `Installer`,
   `Build EFI`, `Configure EFI`. A stretch, then `Settings` / `Help` / `Donate` (34 px) at the bottom.
   Every item is icon + text, muted when idle; the active item is a blue gradient pill
@@ -977,7 +979,7 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
   and `Unsupported` is not necessarily a blocked build.
 - A status bar along the bottom edge, or a `Ready` line anywhere. 2.0 removed it.
 - A toolbar across the top, a hamburger, or a collapsible rail. The sidebar is the primary
-  navigation, and `Settings`, `Help` and `Donate` stay at the bottom of the fixed 200 px rail. The
+  navigation, and `Settings`, `Help` and `Donate` stay at the bottom of the 200 px rail. The
   `File` / `View` / `Help` menu bar is always visible: the system bar on macOS, a strip at the top of
   the window on Windows and Linux.
 - A theme button (sun / moon) in the header. The theme control is the combo in
@@ -1125,6 +1127,9 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
   (`Intel Cannon Lake-HDMI`, `Realtek RTL8821CE-CU4AA_921E PCIe Network Card`) rather than tidy ones.
 - No string is ever split across two labels to fake a line break; ranges use ` - ` (hyphen), not an
   en-dash, because the value is also printed to logs.
+- No control is ever narrower than its own label. The window's minimum width is fixed, so when the
+  platform font is wider than the reference font the rail grows past its 200 px floor and an action
+  row takes a second line instead of squeezing a button. A mockup should never draw a clipped label.
 - The theme picker, the diagnostics button and all six sidebar items are keyboard-reachable. The
   theme picker changes the theme immediately; it does not need a Save button, and no utility view
   has one.
@@ -3231,6 +3236,7 @@ and is contradicted by running code. None is a stylistic choice you can keep.
 | Wallpaper behind the native title bar, or outside the window | The wallpaper is clipped to the client area. The native title bar and the menu strip sit above it and are never painted by the app's backdrop. |
 | A search pill on `Installer`, `Build EFI`, `Logs`, `Configure EFI`, `Settings`, `Help` or `Donate` | The search filters the device table, which exists only on `Compatibility`; the pill is hidden everywhere else. |
 | Icons beside sidebar items forbidden (1.1 rule) | Icons are required: `download` / `build` / `sliders` in the three workflow sections, plus `gear` / `help` / `heart` for Settings, Help and Donate. They come from the inline SVG set, never a third-party library. |
+| A sidebar pinned to exactly 200 px on every platform, or a nav label clipped to fit it | The rail is 200 px at the reference font and never narrower; a wider platform font grows it by the pixels its longest label needs. The Configure page's action slot and Keys toolbar wrap onto a second line rather than squeezing a button. |
 | A top-level `Compatibility`, `Build` or `Logs` sidebar item | 3.0 has exactly three workflow sections: `Installer`, `Build EFI`, `Configure EFI`. Compatibility, Build and Logs are segment tabs inside `Build EFI`. |
 | An `Erase drive` / `Format` checkbox, a partition picker, or an installer that mounts a disk | The Installer copies files into an already-mounted FAT32 volume and replaces only `EFI` and `com.apple.recovery.boot`. It never formats, mounts or writes to a block device. |
 | A USB combo that already has the first drive selected | No drive is selected until the user picks one. The placeholder says `Choose a USB drive`, and the write confirmation names the target. |
