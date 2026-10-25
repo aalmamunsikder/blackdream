@@ -1,20 +1,47 @@
-# BlackDream 0.9.0-beta.3
+# BlackDream 0.9.0-beta.4
 
-Released 2026-10-24 · pre-release · MIT licensed · no account, no telemetry, no ads,
+Released 2026-10-25 · pre-release · MIT licensed · no account, no telemetry, no ads,
 no update check.
 
-This is the third build distributed outside the development machine. It is a **beta**:
+This is the fourth build distributed outside the development machine. It is a **beta**:
 it asks for reports, it does not promise coverage. The feature set is frozen at what
-`docs/UI-MOCKUP-SPEC.md` v3.6 marks *built*; anything labelled *concept* or *planned* is
-not in this binary. The spec has since moved to v3.7, and the one screen it added there is
-listed under *After beta 3* below rather than under this release.
+`docs/UI-MOCKUP-SPEC.md` v3.7 marks *built*; anything labelled *concept* or *planned* is
+not in this binary.
 
-## What is new in beta 3
+## What is new in beta 4
 
-Beta 3 adds six surfaces around the analysis the app already produces: two comparisons,
-two local stores, one checklist and one preview. Every one of them reads. None of them
-grades a device, writes a file, mounts a disk, boots anything, uploads anything or
-claims that a clean result proves a boot.
+* **Dependency advisories** (`Configure EFI`, `Dependencies…`). Reads the kext, driver,
+  boot-arg and quirk relationships the open `config.plist` already claims and reports the
+  ones it does not keep: a kext whose `MaxKernel` excludes the release you selected, a
+  boot-arg naming a kext that is not injected, `OpenRuntime.efi` missing from `UEFI` while
+  its pairing quirk is on, a duplicate entry, two graphics kexts that both claim the same
+  hardware, a quirk pair the engine never derives apart. Every row cites the rule it came
+  from and the file and line that rule was read at, so a tester can check the claim rather
+  than take it. `Copy` and `Save as text…` export the report with the same citation block
+  it shows on screen. `Dismiss` hides one advisory hereafter and `Go to key` closes the
+  dialog with that key selected in the tree. There is no `Apply`, `Fix` or `Reorder`
+  button: this reports relationships, it does not edit them. Dismissals are the only write
+  and they go to `advisor-dismissals.json` in BlackDream's own state folder, never into
+  `config.plist`.
+* **Every vendor notice keeps its own name.** In beta 3 the bundle's `licenses/` folder
+  held a single `VENDOR_NOTICE.txt`, so installing one notice over another left a file
+  whose name promised more than its bytes delivered. Each notice now lives in its own
+  directory, and the packaging check computes a digest of what is actually installed.
+* **No label is ever cut to fit its control.** The window's minimum width and a platform
+  font a few per cent wider than the reference one used to meet in a squeezed toolbar:
+  `Changes…` drew as `hanges`, and later CI runs found `Generate serials`, `Presets…`,
+  `Schema preview…` and `Validate again` losing their last letters. The rail is now a floor
+  that grows by the pixels its labels need, and every action row takes a second line
+  instead of compressing a button. Every frame in `docs/screenshots` is 1536 px wide and
+  could not show this; the measurement happens at the smallest window and is re-run with
+  a manufactured wider font on all three platforms.
+
+## Carried from beta 3
+
+Beta 3 added six surfaces around the analysis the app already produces: two comparisons,
+two local stores, one checklist and one preview. They are unchanged in beta 4. Every one of
+them reads. None of them grades a device, writes a file, mounts a disk, boots anything,
+uploads anything or claims that a clean result proves a boot.
 
 * **Compare releases** (`Compatibility`, `Compare releases…`). One row per graded device,
   one column per selectable macOS release, so the trade-off between 10.13 and Tahoe is
@@ -56,25 +83,6 @@ claims that a clean result proves a boot.
   background, with its result shown as written. There is no `Migrate`, `Apply` or `Fix`
   button, `config.plist` is untouched, and the note written when the dialog closes says so.
 
-## After beta 3
-
-One surface is merged in the source tree and is **not** in the published beta 3 binary. It
-will ship in the next build; if you are testing `0.9.0-beta.3` you cannot see it.
-
-* **Dependency advisories** (`Configure EFI`, `Dependencies…`). Reads the kext, driver,
-  boot-arg and quirk relationships the open `config.plist` already claims and reports the
-  ones it does not keep: a kext whose `MaxKernel` excludes the release you selected, a
-  boot-arg naming a kext that is not injected, `OpenRuntime.efi` missing from `UEFI` while
-  its pairing quirk is on, a duplicate entry, two graphics kexts that both claim the same
-  hardware, a quirk pair the engine never derives apart. Every row cites the rule it came
-  from and the file and line that rule was read at, so a tester can check the claim rather
-  than take it. `Copy` and `Save as text…` export the report with the same citation block
-  it shows on screen. `Dismiss` hides one advisory hereafter and `Go to key` closes the
-  dialog with that key selected in the tree. There is no `Apply`, `Fix` or `Reorder`
-  button: this reports relationships, it does not edit them. Dismissals are the only write
-  and they go to `advisor-dismissals.json` in BlackDream's own state folder, never into
-  `config.plist`.
-
 ## What is in this release
 
 Three sections, in the order the workflow runs:
@@ -93,7 +101,7 @@ Three sections, in the order the workflow runs:
    entries, `data` values edited as hex or printable text, `ocvalidate` results inline,
    `macserial` SMBIOS serials behind a confirmation, undo/redo with a `Changes…` review,
    atomic `Save` with `config.plist.bak`, and `Revert` back to the bytes on disk. The
-   schema preview above lives here.
+   dependency advisories and the schema preview above live here.
 
 Plus `Settings` (theme, storage paths, safety statements), `Help` (quick start,
 shortcuts, troubleshooting, the first-boot checklist, `Copy environment info`,
@@ -115,8 +123,10 @@ name, and the privacy-safe diagnostic bundle.
   a previous BlackDream build is replaced only when its marker proves ownership.
 * Editing, validating and generating serials change only the in-memory document. The
   file is written when, and only when, you press `Save`.
-* The new comparison surfaces read and never write. A release matrix or a report
-  comparison cannot change a verdict, and a schema preview cannot change a config.
+* The new comparison and advisory surfaces read and never write. A release matrix or a
+  report comparison cannot change a verdict, a schema preview cannot change a config, and
+  a dependency advisory offers no `Apply`, `Fix` or `Reorder`. The one write the advisor
+  makes is a dismissal, in its own state file.
 * Profiles and build history are local files in BlackDream's state folder, next to the
   artifact cache. They are not uploaded, not synced, and a profile deliberately has no
   field for an SMBIOS identity value.
@@ -145,7 +155,7 @@ a number, so the promise in `Info.plist` is one the bundled Qt can keep.
 
 ## What to test
 
-Five journeys, in this order. Each one ends in something you can look at, so a partial
+Six journeys, in this order. Each one ends in something you can look at, so a partial
 run is still a report. Do them on a machine you own or are allowed to break, and keep the
 destructive ones on a stick you can afford to reformat — never your only boot drive.
 
@@ -166,7 +176,12 @@ destructive ones on a stick you can afford to reformat — never your only boot 
    stick you do not mind losing and read the confirmation: it should name that volume and
    say only `EFI` and `com.apple.recovery.boot` are replaced. Write it, then check that
    everything else on the stick is where you left it.
-5. **The failure paths on purpose.** Load a file that is not a report. Load a report whose
+5. **Advisories → dismiss.** Open a built `config.plist`, choose a release on `Build EFI`,
+   then open `Configure EFI ▸ Dependencies…`. Does every row name a key and a rule you can
+   find in the open config? Is a finding right or wrong for the machine you are testing?
+   Press `Dismiss` on one, reopen the dialog, and confirm it is under `Show dismissed` and
+   that `config.plist`'s bytes did not change.
+6. **The failure paths on purpose.** Load a file that is not a report. Load a report whose
    hardware cannot run macOS. Change a `config.plist` outside the app and let it notice.
    Unplug the USB stick mid-write. A refusal should read as a refusal, with a reason, and
    should never leave the previous report's devices on screen.
@@ -206,6 +221,12 @@ launch. Long device names and empty ACPI folders are equally useful.
 * **The first-boot checklist is general advice.** It is not your motherboard's guide:
   Secure Boot enrolment, the boot-menu key and NVRAM behaviour differ per board, and
   BlackDream cannot read or change any of them.
+* **Dependency advisories read the config, not the machine.** A rule sees only what the
+  open `config.plist` claims, plus the release you selected — no firmware, ACPI dump or
+  device verdict — so a clean result means "no relationship this ruleset knows is broken",
+  never "this EFI boots". A false positive is as useful to report as a miss; the exported
+  text carries the rule citation. A dismissal is recorded against the ruleset it was made
+  under, so changing a rule's meaning makes its findings visible again.
 * **Schema preview is a reading, not a migrator.** It projects scalar and empty-container
   additions only, so a missing array or dictionary is listed rather than created, and it
   applies nothing. A real migration would need a review and a save, and no such button
@@ -253,11 +274,11 @@ Every build publishes these files into `dist/release/`:
 
 | Name | What it is |
 | --- | --- |
-| `BlackDream-0.9.0-beta.3-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
-| `blackdream_0.9.0b3_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
-| `blackdream-0.9.0b3-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
-| `blackdream-0.9.0b3-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
-| `blackdream-0.9.0b3.tar.gz` | the source distribution |
+| `BlackDream-0.9.0-beta.4-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
+| `blackdream_0.9.0b4_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
+| `blackdream-0.9.0b4-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
+| `blackdream-0.9.0b4-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
+| `blackdream-0.9.0b4.tar.gz` | the source distribution |
 
 A Linux bundle needs glibc 2.35 or newer. That is not a preference: the build measures
 the versioned symbols inside the shipped Qt and glib libraries and refuses to publish a

@@ -13,7 +13,7 @@ public. Never post an SMBIOS serial, MLB, UUID or ROM value.
 -->
 
 **BlackDream version**
-<!-- The version line from Help ▸ About, e.g. 0.9.0-beta.3 -->
+<!-- The version line from Help ▸ About, e.g. 0.9.0-beta.4 -->
 
 **Operating system and build**
 <!-- e.g. Ubuntu 22.04 on X11, Fedora 40 on Wayland, Windows 11 23H2, macOS 14.7 on Intel -->
