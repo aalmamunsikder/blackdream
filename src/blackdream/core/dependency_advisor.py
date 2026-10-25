@@ -38,7 +38,7 @@ from ocengine import paths
 
 #: Bump this when a rule's meaning changes, not merely when one is added. Dismissal
 #: keys carry it, so a reinterpreted rule cannot stay hidden behind an old dismissal.
-RULESET = 1
+RULESET = 2
 
 ERROR = "error"
 WARNING = "warning"
@@ -47,7 +47,7 @@ INFO = "info"
 HIGH = "high"
 MEDIUM = "medium"
 
-#: Where the firmware's own macOS selection lives. ``config_prodigy.py:744`` writes
+#: Where the firmware's own macOS selection lives. ``config_prodigy.py:841`` writes
 #: ``boot-args`` here; an entry under any other GUID is never read by the firmware.
 BOOT_SERVICES_GUID = "7C436110-AB2A-4BBB-A880-FE41995C9F82"
 
@@ -71,10 +71,11 @@ _GROUP_LABELS = {
     "PC711": "ASMedia PCIe SATA probing",
     "RealtekCardReader": "Realtek card-reader support",
     "TSC": "time stamp counter synchronisation",
+    "AMFI": "AMFI bypass",
 }
 
 #: A boot-arg the engine only ever writes while a particular kext is selected.
-#: ``config_prodigy.py:623-631`` gates ``alcid=``, ``-vi2c-force-polling`` and
+#: ``config_prodigy.py:709-713`` gates ``alcid=``, ``-vi2c-force-polling`` and
 #: ``ctrsmt=full`` on AppleALC, VoodooI2C and CpuTopologyRebuild respectively.
 _ARG_OWNERS = {
     "alcid": ("AppleALC", "the audio codec layout id"),
@@ -82,7 +83,7 @@ _ARG_OWNERS = {
     "ctrsmt": ("CpuTopologyRebuild", "the rebuild of hybrid core topology"),
 }
 
-#: ``config_prodigy.py:607`` writes this only for a Navi dGPU while WhateverGreen is
+#: ``config_prodigy.py:689`` writes this only for a Navi dGPU while WhateverGreen is
 #: selected. It is listed apart from :data:`_ARG_OWNERS` because the kext may be absent
 #: on a machine whose dGPU does not need it, which is why it is only ``info``.
 _PIKERA_OWNER = "WhateverGreen"
@@ -174,7 +175,7 @@ def _darwin(text):
     """``"22.4.0"`` to ``(22, 4, 0)``; anything unusable reads as None.
 
     ``MinKernel`` and ``MaxKernel`` are written empty by the engine when they mean the
-    whole range (``kext_maestro.py:1249``), and a hand-edited plist can hold anything,
+    whole range (``kext_maestro.py:1338-1339``), and a hand-edited plist can hold anything,
     so a value that will not parse must not become an advisory.
     """
     if not isinstance(text, str):
@@ -255,7 +256,7 @@ def _order_and_dependency(document: dict) -> list[Advisory]:
                     "{} is enabled, but {} is switched off.".format(name, parent),
                     "{}.kext is in Kernel/Add with Enabled false".format(parent),
                     "Enable {}.kext, or the loader will refuse {}.".format(parent, name),
-                    "ocengine/kext_maestro.py:645-649 (a dependency is pulled in with "
+                    "ocengine/kext_maestro.py:650-657 (a dependency is pulled in with "
                     "its dependent)"))
             elif position is None:
                 findings.append(_advisory(
@@ -273,7 +274,7 @@ def _order_and_dependency(document: dict) -> list[Advisory]:
                         name, index, parent, position),
                     "Move {} above {} in Kernel/Add. The engine emits a dependency "
                     "before whatever needs it.".format(parent, name),
-                    "ocengine/kext_maestro.py:1201-1203 (dependency visit order)"))
+                    "ocengine/kext_maestro.py:1291-1293 (dependency visit order)"))
     return findings
 
 
@@ -331,7 +332,7 @@ def _other_guids_with_boot_args(document: dict) -> list[str]:
     """GUIDs under ``NVRAM/Add`` that carry ``boot-args`` but are not BootServices.
 
     OpenCore reads its boot arguments from one GUID
-    (``ocengine/config_prodigy.py:744``). An entry under any other is written, kept in
+    (``ocengine/config_prodigy.py:841``). An entry under any other is written, kept in
     sync by hand, and never read by the firmware - which is the kind of thing a config
     copied from another machine carries.
     """
@@ -359,7 +360,7 @@ def _boot_arg_findings(document: dict, target, flagged=()) -> list[Advisory]:
             "GUID {}".format(guid),
             "Move the arguments under {}, where OpenCore looks.".format(
                 BOOT_SERVICES_GUID),
-            "ocengine/config_prodigy.py:744"))
+            "ocengine/config_prodigy.py:841"))
 
     text, path = _boot_args(document)
     if path is None:
@@ -378,7 +379,7 @@ def _boot_arg_findings(document: dict, target, flagged=()) -> list[Advisory]:
                 "boot-args reads {!r}".format(text),
                 "Enable {}.kext, or drop {} - it does nothing on its own.".format(
                     owner[0], token),
-                "ocengine/config_prodigy.py:623-631"))
+                "ocengine/config_prodigy.py:709-713"))
         elif token == "agdpmod" and _PIKERA_OWNER not in names:
             findings.append(_advisory(
                 "boot_arg.pikera_without_weg", INFO, MEDIUM, path, where,
@@ -386,7 +387,7 @@ def _boot_arg_findings(document: dict, target, flagged=()) -> list[Advisory]:
                 "boot-args reads {!r}".format(text),
                 "The engine writes this only while WhateverGreen is selected for a Navi "
                 "dGPU; check it still applies to this machine.",
-                "ocengine/config_prodigy.py:607"))
+                "ocengine/config_prodigy.py:689"))
 
     if "-lilubetaall" not in present and target:
         window = _first_out_of_window(document, target, flagged)
@@ -400,7 +401,295 @@ def _boot_arg_findings(document: dict, target, flagged=()) -> list[Advisory]:
                 "{} needs a beta Lilu plug-in path outside {}-{}".format(name, low, high),
                 "The engine adds -lilubetaall in this case; this config does not carry "
                 "it, so the plug-in may be skipped.",
-                "ocengine/config_prodigy.py:577-579"))
+                "ocengine/config_prodigy.py:654-655"))
+    return findings
+
+
+#: The SIP values a config may carry with WhateverXe. ``config_prodigy.py:725-729``
+#: writes 0x803 for it; 0x0A43 is what the NullMoth driver needs and is a superset, so
+#: one value serves a machine that has both a Xe iGPU and a NullMoth card.
+_WHATEVERXE_CSR = (bytes.fromhex("03080000"), bytes.fromhex("430A0000"))
+
+#: Boot arguments ``config_prodigy.py:657-662`` adds for WhateverXe and nothing else.
+_WHATEVERXE_ARGS = ("-allow3d", "-disablegfxfirmware")
+
+
+def _csr_value(document: dict):
+    """The bytes under ``csr-active-config``, or None when absent or unreadable."""
+    nvram = document.get("NVRAM")
+    add = nvram.get("Add") if isinstance(nvram, dict) else None
+    services = add.get(BOOT_SERVICES_GUID) if isinstance(add, dict) else None
+    if not isinstance(services, dict):
+        return None
+    value = services.get("csr-active-config")
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    if isinstance(value, str):
+        try:
+            return bytes.fromhex(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _whateverxe_findings(document: dict) -> list[Advisory]:
+    """The relationships WhateverXe's own requirements add to a config.
+
+    Nothing here asks what the hardware is: the plist already says WhateverXe is on,
+    and the same plist can answer the three questions the project makes mandatory --
+    its boot arguments, the SIP value its signed graphics stack needs, and the
+    AMFIPass build it ships with. The arguments are read back from the one GUID the
+    firmware reads, so a config whose boot-args live elsewhere reports both problems.
+    """
+    entries = _kernel_entries(document)
+    enabled = [(index, entry) for index, entry in enumerate(entries) if _enabled(entry)]
+    names = {_entry_name(entry) for _index, entry in enabled}
+    if "WhateverXe" not in names:
+        return []
+    index = next(position for position, entry in enabled
+                 if _entry_name(entry) == "WhateverXe")
+    findings: list[Advisory] = []
+
+    text, args_path = _boot_args(document)
+    args_where = "NVRAM/Add/{}/boot-args".format(BOOT_SERVICES_GUID)
+    present = _arg_keys(text)
+    missing = [arg for arg in _WHATEVERXE_ARGS if arg not in present]
+    if missing:
+        findings.append(_advisory(
+            "whateverxe.boot_args", WARNING, HIGH,
+            args_path or ("NVRAM", "Add", BOOT_SERVICES_GUID, "boot-args"),
+            args_where,
+            "WhateverXe is enabled, but boot-args does not carry {}.".format(
+                " or ".join(missing)),
+            "boot-args reads {!r}".format(text) if text else "boot-args is not set",
+            "Add {} to boot-args. The engine writes both for WhateverXe on every "
+            "build.".format(" and ".join(missing)),
+            "ocengine/config_prodigy.py:657-662 (WhateverXe boot arguments)"))
+
+    csr = _csr_value(document)
+    if csr not in _WHATEVERXE_CSR:
+        findings.append(_advisory(
+            "whateverxe.csr", WARNING, HIGH,
+            ("NVRAM", "Add", BOOT_SERVICES_GUID, "csr-active-config"),
+            "NVRAM/Add/{}/csr-active-config".format(BOOT_SERVICES_GUID),
+            "WhateverXe is enabled while csr-active-config is {}.".format(
+                csr.hex().upper() if csr is not None else "not set"),
+            "The signed graphics package requires SIP partially disabled at 0x803",
+            "Set csr-active-config to 03080000. 430A0000 also works: it includes those "
+            "bits and is what the NullMoth NVIDIA driver needs. WhateverXe's graphics "
+            "package does not load with SIP left at its default value.",
+            "ocengine/config_prodigy.py:725-729 and :842"))
+
+    if "AMFIPass" not in names:
+        findings.append(_advisory(
+            "whateverxe.amfipass", WARNING, HIGH, _entry_path(index),
+            "Kernel/Add/{}/WhateverXe".format(index),
+            "WhateverXe is enabled, but AMFIPass is not.",
+            "Kernel/Add has no enabled AMFIPass.kext",
+            "Add the AMFIPass-v1.4.1-Mod build from WhateverXe-Graphics' extras to "
+            "Kernel/Add after Lilu. The engine selects that build with WhateverXe.",
+            "ocengine/kext_maestro.py:715-716 (WhateverXe selects AMFIPass-Mod)"))
+
+    if "-yTileDisable" in present:
+        findings.append(_advisory(
+            "whateverxe.ytiledisable", WARNING, MEDIUM, args_path, args_where,
+            "-yTileDisable is set while WhateverXe is enabled.",
+            "boot-args reads {!r}".format(text),
+            "Remove -yTileDisable. The project's notes say it must not be used on the "
+            "Xe-LP display path, and it changes the framebuffer layout.",
+            "ocengine/config_prodigy.py:657-662 (known-issue note)"))
+    return findings
+
+
+#: ``config_prodigy.py:626-647`` writes these while a NullMoth-graded card is selected.
+#: The driver itself is installed on the target and loads from the AuxKC, so boot-args
+#: are the only trace it leaves in a config.plist; every rule below keys on them.
+_NULLMOTH_ARGS = ("nvfb=1", "nvaccel=1", "nvfbheads=4", "-nvkmsnosmooth",
+                  "amfi_get_out_of_my_way=0x1", "amfi=0x80",
+                  "ipc_control_port_options=0")
+
+#: The installer's DROP_ARGS: both switch the NVIDIA GPU off, which leaves the driver
+#: nothing to attach to.
+_NULLMOTH_FORBIDDEN_ARGS = ("nv_disable=1", "-wegnoegpu")
+
+#: The bits of the driver's tested SIP value 0x0A43. Its installer ORs them into the
+#: machine's current value, so extra bits are fine and a missing one is the defect.
+_NULLMOTH_CSR_BITS = 0x0A43
+
+#: The driver's four kexts. They are installed in /Library and load from the AuxKC; an
+#: entry under Kernel/Add is the installer's staging path, not an EFI kext.
+_NULLMOTH_BUNDLES = ("NVRM", "NVAccel", "NVRMFB", "NVRMAGDC")
+
+
+def _iondrv_block(document: dict):
+    """``(index, enabled)`` of the IONDRVSupport Exclude entry, or ``(None, False)``."""
+    kernel = document.get("Kernel")
+    block = kernel.get("Block") if isinstance(kernel, dict) else None
+    if not isinstance(block, list):
+        return None, False
+    for index, entry in enumerate(block):
+        if not isinstance(entry, dict):
+            continue
+        if (entry.get("Identifier") == "com.apple.iokit.IONDRVSupport"
+                and entry.get("Strategy") == "Exclude"):
+            return index, _enabled(entry)
+    return None, False
+
+
+def _deletes_nvram_key(document: dict, key: str) -> bool:
+    nvram = document.get("NVRAM")
+    delete = nvram.get("Delete") if isinstance(nvram, dict) else None
+    if not isinstance(delete, dict):
+        return False
+    entries = delete.get(BOOT_SERVICES_GUID)
+    return isinstance(entries, list) and key in entries
+
+
+def _nullmoth_findings(document: dict) -> list[Advisory]:
+    """The relationships the NullMoth NVIDIA driver's README requires of a config.
+
+    The driver is not a kext in ``Kernel/Add``: it is installed inside the target
+    macOS and loads from the AuxKC, so the only trace it leaves in a plist is its
+    boot-args. ``nvfb=1``/``nvaccel=1`` is therefore the trigger, and each rule below
+    reads another key the same plist already carries. The one hardware question - the
+    installer's Intel-framebuffer exception to the IONDRVSupport block - cannot be
+    answered from a plist, so the rule names it instead of guessing.
+    """
+    text, args_path = _boot_args(document)
+    tokens = text.split()
+    if "nvfb=1" not in tokens and "nvaccel=1" not in tokens:
+        return []
+    findings: list[Advisory] = []
+    args_where = "NVRAM/Add/{}/boot-args".format(BOOT_SERVICES_GUID)
+    entries = _kernel_entries(document)
+    enabled = [(index, entry) for index, entry in enumerate(entries) if _enabled(entry)]
+    names = {_entry_name(entry) for _index, entry in enabled}
+
+    missing = [arg for arg in _NULLMOTH_ARGS if arg not in tokens]
+    if missing:
+        findings.append(_advisory(
+            "nullmoth.boot_args", WARNING, HIGH, args_path, args_where,
+            "The NullMoth driver is configured, but boot-args does not carry {}.".format(
+                " and ".join(missing)),
+            "boot-args reads {!r}".format(text),
+            "Add {} to boot-args. These are the tokens the driver's installer writes; "
+            "without them the framebuffer or accelerator stays closed.".format(
+                " and ".join(missing)),
+            "ocengine/config_prodigy.py:626-647 (NullMoth boot arguments)"))
+
+    csr = _csr_value(document)
+    value = int.from_bytes(csr, "little") if csr is not None else 0
+    if csr is None or (value & _NULLMOTH_CSR_BITS) != _NULLMOTH_CSR_BITS:
+        findings.append(_advisory(
+            "nullmoth.csr", WARNING, HIGH,
+            ("NVRAM", "Add", BOOT_SERVICES_GUID, "csr-active-config"),
+            "NVRAM/Add/{}/csr-active-config".format(BOOT_SERVICES_GUID),
+            "The NullMoth driver is configured while csr-active-config is {}.".format(
+                csr.hex().upper() if csr is not None else "not set"),
+            "The driver's tested value needs the 0x0A43 bits set",
+            "Set csr-active-config so those bits are present; 430A0000 is the tested "
+            "value. WhateverXe's 03080000 is not enough on its own, while 430A0000 "
+            "includes it and serves a machine with both.",
+            "ocengine/config_prodigy.py:719-729 and :842"))
+
+    misc = document.get("Misc")
+    security = misc.get("Security") if isinstance(misc, dict) else None
+    model = security.get("SecureBootModel") if isinstance(security, dict) else None
+    if isinstance(model, str) and model != "Disabled":
+        findings.append(_advisory(
+            "nullmoth.secure_boot", WARNING, HIGH,
+            ("Misc", "Security", "SecureBootModel"), "Misc/Security/SecureBootModel",
+            "SecureBootModel is {!r} while the NullMoth driver is configured.".format(
+                model),
+            "the driver's kexts are not signed by Apple for this machine",
+            "Set SecureBootModel to Disabled. The engine writes Disabled for every "
+            "target the driver supports.",
+            "ocengine/config_prodigy.py:836"))
+
+    if "AMFIPass" not in names and "AMFIPass-Mod" not in names:
+        findings.append(_advisory(
+            "nullmoth.amfipass", WARNING, HIGH, ("Kernel", "Add"), "Kernel/Add",
+            "The NullMoth driver is configured, but neither AMFIPass build is enabled.",
+            "Kernel/Add has no enabled AMFIPass.kext or AMFIPass-Mod.kext",
+            "Add AMFIPass.kext (or the Mod build WhateverXe ships) after Lilu. The "
+            "driver's arguments relax AMFI, but its bundle is still unsigned, and the "
+            "engine selects AMFIPass alongside the card.",
+            "ocengine/kext_maestro.py:718-726 (NullMoth selects AMFIPass)"))
+
+    forbidden = [arg for arg in _NULLMOTH_FORBIDDEN_ARGS if arg in tokens]
+    if forbidden:
+        findings.append(_advisory(
+            "nullmoth.gpu_disabled", WARNING, HIGH, args_path, args_where,
+            "{} is set while the NullMoth driver is configured.".format(
+                " and ".join(forbidden)),
+            "boot-args reads {!r}".format(text),
+            "Remove {}. Both switch the NVIDIA GPU off, which leaves the driver "
+            "nothing to attach to; the installer drops them before adding its own "
+            "arguments.".format(" and ".join(forbidden)),
+            "ocengine/config_prodigy.py:626-647 (the driver's arguments are added to "
+            "the config it is given)"))
+
+    for index, entry in enabled:
+        name = _entry_name(entry)
+        identifier = entry.get("Identifier") if isinstance(entry, dict) else None
+        tail = identifier.rsplit(".", 1)[-1] if isinstance(identifier, str) else ""
+        injected = name if name in _NULLMOTH_BUNDLES else tail
+        if injected not in _NULLMOTH_BUNDLES:
+            continue
+        findings.append(_advisory(
+            "nullmoth.injected_kext", WARNING, HIGH, _entry_path(index),
+            "Kernel/Add/{}/{}".format(index, name or tail),
+            "{}.kext is injected into Kernel/Add while the NullMoth driver is in "
+            "use.".format(injected),
+            "the driver's kexts are installed in /Library and load from the AuxKC",
+            "Remove it from Kernel/Add. An EFI copy is built for the installer's "
+            "environment and can shadow the installed build after a macOS update.",
+            "blackdream/core/pipeline.py:162-164 (the handoff says not to add them)"))
+
+    if "WhateverGreen" in names and "gfxrst" not in _arg_keys(text):
+        findings.append(_advisory(
+            "nullmoth.gfxrst", WARNING, HIGH, args_path, args_where,
+            "WhateverGreen is enabled and boot-args has no gfxrst while the NullMoth "
+            "driver is configured.",
+            "boot-args reads {!r}".format(text),
+            "Add gfxrst=4. WhateverGreen's boot-screen copy can read a freed mapping "
+            "once the NVIDIA display opens; the vendor turns it off with that value.",
+            "ocengine/config_prodigy.py:641-644 (NullMoth adds gfxrst=4 with "
+            "WhateverGreen)"))
+
+    if not _deletes_nvram_key(document, "boot-args"):
+        findings.append(_advisory(
+            "nullmoth.nvram_delete", WARNING, MEDIUM,
+            ("NVRAM", "Delete", BOOT_SERVICES_GUID),
+            "NVRAM/Delete/{}".format(BOOT_SERVICES_GUID),
+            "NVRAM/Delete does not carry boot-args.",
+            "macOS can rewrite boot-args in NVRAM at every start",
+            "Add boot-args to NVRAM/Delete under {}. OpenCore then rewrites the "
+            "driver's arguments instead of letting a macOS NVRAM write keep the last "
+            "value.".format(BOOT_SERVICES_GUID),
+            "ocengine/config_prodigy.py:843-848 (boot-args is deleted so it is "
+            "rewritten)"))
+
+    block_index, block_enabled = _iondrv_block(document)
+    if not block_enabled:
+        path = (("Kernel", "Block", block_index, "Enabled") if block_index is not None
+                else ("Kernel", "Block"))
+        where = ("Kernel/Block/{}/Enabled".format(block_index)
+                 if block_index is not None else "Kernel/Block")
+        evidence = ("Kernel/Block/{} is disabled".format(block_index)
+                    if block_index is not None
+                    else "Kernel/Block has no IONDRVSupport Exclude entry")
+        findings.append(_advisory(
+            "nullmoth.iondrv_block", WARNING, MEDIUM, path, where,
+            "Kernel/Block does not exclude IONDRVSupport while the NullMoth driver is "
+            "configured.",
+            evidence,
+            "Exclude com.apple.iokit.IONDRVSupport. The installer adds one because the "
+            "boot framebuffer otherwise takes display index 0 from NVRMFB; skip it "
+            "only if this machine's built-in screen runs on an Intel iGPU through that "
+            "framebuffer.",
+            "ocengine/config_prodigy.py:501-514 (the block and its Intel-panel "
+            "exception)"))
     return findings
 
 
@@ -445,7 +734,7 @@ def _window_findings(document: dict, target) -> list[Advisory]:
         low = _darwin(entry.get("MinKernel"))
         high = _darwin(entry.get("MaxKernel"))
         # An empty window in the plist means the whole range: the engine writes ""
-        # rather than the lowest version it knows (kext_maestro.py:1249), so an absent
+        # rather than the lowest version it knows (kext_maestro.py:1308), so an absent
         # bound is not a bound, and no catalogue guess should become an advisory.
         if low and wanted < low:
             findings.append(_advisory(
@@ -457,7 +746,7 @@ def _window_findings(document: dict, target) -> list[Advisory]:
                 "Choose an older release, or enable the kext for a machine that needs "
                 "it; MinKernel hides it from anything below {}.".format(
                     entry.get("MinKernel")),
-                "ocengine/kext_maestro.py:1249 (MinKernel is written per entry)"))
+                "ocengine/kext_maestro.py:1338-1339 (MinKernel is written per entry)"))
         if high and wanted > high:
             findings.append(_advisory(
                 "window.excludes_target", ERROR, HIGH, _entry_path(index, "MaxKernel"),
@@ -467,7 +756,7 @@ def _window_findings(document: dict, target) -> list[Advisory]:
                     entry.get("MaxKernel"), target),
                 "Choose an older release, or raise MaxKernel only if you know this kext "
                 "works past {}.".format(entry.get("MaxKernel")),
-                "ocengine/kext_maestro.py:1198-1199 (MaxKernel comes from the "
+                "ocengine/kext_maestro.py:1288-1289 (MaxKernel comes from the "
                 "catalogue window)"))
     return findings
 
@@ -484,7 +773,7 @@ def _duplicate_paths(document: dict) -> list[Advisory]:
         if folded in seen:
             previous = seen[folded]
             # The engine disables the second of two bundles sharing an identifier
-            # rather than dropping it (kext_maestro.py:1228-1231), so a disabled twin
+            # rather than dropping it (kext_maestro.py:1288-1291), so a disabled twin
             # is the recorded answer, not a defect worth raising twice.
             if not _enabled(entry):
                 continue
@@ -494,7 +783,7 @@ def _duplicate_paths(document: dict) -> list[Advisory]:
                 "{} is listed twice.".format(reference),
                 "entries {} and {} name the same bundle".format(previous, index),
                 "Remove the repeated entry. The second one loads nothing new.",
-                "ocengine/kext_maestro.py:1228-1231 (a repeated bundle is disabled, "
+                "ocengine/kext_maestro.py:1317-1319 (a repeated bundle is disabled, "
                 "not re-listed)"))
             continue
         seen[folded] = index
@@ -534,7 +823,7 @@ def _driver_findings(document: dict, target) -> list[Advisory]:
             "UEFI/Drivers lists {}".format(", ".join(names) or "nothing"),
             "Add OpenRuntime.efi to UEFI/Drivers. The engine lists it for every build, "
             "and OpenCore's protocol replacement needs it.",
-            "ocengine/config_prodigy.py:645"))
+            "ocengine/config_prodigy.py:739"))
     if "hfsplus.efi" in present and "hfspluslegacy.efi" in present:
         findings.append(_advisory(
             "driver.pairing", WARNING, HIGH, ("UEFI", "Drivers"), where,
@@ -542,7 +831,7 @@ def _driver_findings(document: dict, target) -> list[Advisory]:
             "UEFI/Drivers lists {}".format(", ".join(names)),
             "Keep one. The engine picks the legacy variant for the newest CPU "
             "generations and the ordinary one otherwise - never both.",
-            "ocengine/config_prodigy.py:645"))
+            "ocengine/config_prodigy.py:739"))
     wanted = _darwin(target)
     if wanted and wanted >= (25, 0, 0) and "apfs_aligned.efi" not in present:
         findings.append(_advisory(
@@ -551,7 +840,7 @@ def _driver_findings(document: dict, target) -> list[Advisory]:
             "UEFI/Drivers lists {}".format(", ".join(names) or "nothing"),
             "The engine adds apfs_aligned.efi for a 25.x target; check whether this "
             "folder still needs it.",
-            "ocengine/config_prodigy.py:653-654"))
+            "ocengine/config_prodigy.py:747-748"))
     return findings
 
 
@@ -561,7 +850,7 @@ def _driver_findings(document: dict, target) -> list[Advisory]:
 #: engine makes. ``not_both_on`` pairs are the engine's own words for one switch and
 #: its negation - but both off is legitimate there too: an AMD CPU gets
 #: ``AppleXcpmCfgLock = False`` whatever the first quirk says
-#: (:class:`ocengine.config_prodigy`, line 710), so only both-on is impossible.
+#: (:class:`ocengine.config_prodigy`, line 807), so only both-on is impossible.
 #: ``(rule, block, keys, expectation, why, advice, source)``
 _QUIRK_PAIRS = (
     ("quirk.cfg_locks", ("Kernel", "Quirks"), ("AppleCpuPmCfgLock", "AppleXcpmCfgLock"),
@@ -569,19 +858,19 @@ _QUIRK_PAIRS = (
      "The engine sets the second as the negation of the first, and forces it off for "
      "AMD.",
      "Keep one of them off. Two CFG locks patched at once fight over the same MSR.",
-     "ocengine/config_prodigy.py:709-710"),
+     "ocengine/config_prodigy.py:806-807"),
     ("quirk.slide_pair", ("Booter", "Quirks"),
      ("EnableSafeModeSlide", "ProvideCustomSlide"), "equal",
      "The engine derives both from the firmware type alone, so a build of this engine "
      "never has them apart.",
      "Make them match. A slide that is provided but not allowed in Safe Mode, or the "
      "reverse, is usually a hand edit.",
-     "ocengine/config_prodigy.py:683 and :689"),
+     "ocengine/config_prodigy.py:777 and :783"),
     ("quirk.memory_map", ("Booter", "Quirks"),
      ("EnableWriteUnprotector", "RebuildAppleMemoryMap"), "not_both_on",
      "The engine sets the rebuild only when the write unprotector is off.",
      "Turn one off. Both on means two strategies for the same memory map.",
-     "ocengine/config_prodigy.py:684 and :690"),
+     "ocengine/config_prodigy.py:778 and :784"),
 )
 
 
@@ -626,7 +915,7 @@ def _quirk_findings(document: dict) -> list[Advisory]:
                 "CustomSMBIOSGuid is on while UpdateSMBIOSMode is {!r}.".format(mode),
                 "The engine pairs a custom GUID with UpdateSMBIOSMode Custom.",
                 "Set UpdateSMBIOSMode to Custom, or turn CustomSMBIOSGuid off.",
-                "ocengine/config_prodigy.py:713 and :751"))
+                "ocengine/config_prodigy.py:810 and :853"))
 
     bars = _resize_gpu_bars(document)
     text, path = _boot_args(document)
@@ -639,7 +928,7 @@ def _quirk_findings(document: dict) -> list[Advisory]:
                 "The engine writes npci=0x2000 only when the bar resize is not disabled.",
                 "Remove npci=0x2000, or set ResizeAppleGpuBars to -1 if the resize is "
                 "what this machine needs.",
-                "ocengine/config_prodigy.py:570-571 and :691"))
+                "ocengine/config_prodigy.py:623-624 and :785"))
     return findings
 
 
@@ -677,6 +966,8 @@ def advise(document, target=None) -> Report:
     findings.extend(_boot_arg_findings(
         document, target,
         {item.path[2] for item in windowed if len(item.path) > 2}))
+    findings.extend(_whateverxe_findings(document))
+    findings.extend(_nullmoth_findings(document))
     findings.extend(_quirk_findings(document))
     ordered = sorted(findings, key=lambda item: (
         _SEVERITY_ORDER.get(item.severity, 9), -_CONFIDENCE_ORDER.get(item.confidence, 0),

@@ -134,6 +134,21 @@ def test_a_valid_report_populates_verdicts_and_versions(window, tmp_path):
     assert window.version_combo.currentData() == "25.99.99"
 
 
+def test_a_patch_dependent_range_is_not_called_native(window, tmp_path):
+    """NullMoth and WhateverXe fold their range into the engine's tuple.
+
+    That range only works after the driver is installed on the target, so the
+    headline must not call it native while the device row says Limited support.
+    """
+    _load(window, tmp_path, "rtx", fixtures.rtx_desktop())
+
+    summary = window.summary.text()
+    assert summary.startswith("Support: macOS Sequoia 15.5")
+    assert "Native support:" not in summary
+    gpu = next(row for row in _rows(window) if row.text(1) == "GPU")
+    assert gpu.text(3) == "Limited support"
+
+
 def test_engine_activity_is_captured_without_touching_stdout(window, tmp_path, capsys):
     _load(window, tmp_path, "coffee", fixtures.coffee_lake_laptop())
 

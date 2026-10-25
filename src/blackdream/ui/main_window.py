@@ -1038,6 +1038,7 @@ class MainWindow(QMainWindow):
         self.empty_note.setWordWrap(True)
         self.devices_card.add(self.empty_note)
         self._status_delegate = _StatusDelegate(LIGHT)
+        self._row_tint_delegate = _RowTintDelegate()
         self.verdict_tree = _VerdictTree()
         self.verdict_tree.setHeaderLabels(
             ["Device", "Class", "macOS support", "Status"])
@@ -1047,6 +1048,7 @@ class MainWindow(QMainWindow):
         self.verdict_tree.setUniformRowHeights(True)
         self.verdict_tree.setSelectionMode(QAbstractItemView.SingleSelection)
         self.verdict_tree.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.verdict_tree.setItemDelegate(self._row_tint_delegate)
         self.verdict_tree.setItemDelegateForColumn(3, self._status_delegate)
         header = self.verdict_tree.header()
         header.setStretchLastSection(False)
@@ -2470,7 +2472,12 @@ class MainWindow(QMainWindow):
         self._render_verdicts()
         self.compare_releases_button.setEnabled(bool(self._options))
         self.compare_reports_button.setEnabled(self._report_path is not None)
-        summary = "Native support: {}".format(
+        # The engine folds a third-party graphics range into the same tuple as
+        # Apple's own. Calling that "native" would contradict the row that says
+        # Limited support, so the label follows the patch, not the tuple.
+        patched = any(verdict.patch for verdict in self._verdicts)
+        summary = "{}: {}".format(
+            "Support" if patched else "Native support",
             verdicts.friendly_range(analysis.native_range))
         if analysis.oclp_range:
             summary += "\nWith OpenCore Legacy Patcher: {}".format(
@@ -7219,10 +7226,27 @@ class _VerdictTree(QTreeWidget):
         return QSize(hint.width(), min(hint.height(), 172))
 
 
+class _RowTintDelegate(QStyledItemDelegate):
+    """Paints a row's ``BackgroundRole`` under the stylesheet-drawn cell.
+
+    The app-wide ``QTreeWidget::item`` rule routes painting through
+    QStyleSheetStyle, which ignores the model's background role. Without this,
+    the warn and fail row tints in the spec never reach the screen.
+    """
+
+    def paint(self, painter, option, index) -> None:
+        tint = index.data(Qt.BackgroundRole)
+        if tint is not None and not (option.state & QStyle.State_Selected):
+            painter.fillRect(option.rect, tint)
+        super().paint(painter, option, index)
+
+
 class _StatusDelegate(QStyledItemDelegate):
     """Paints the Status column as an icon and coloured word, as the mockup does.
 
     The item's data stays plain text, so the table still sorts and copies as text.
+    This delegate replaces the row-tint one for its column, so it draws the tint
+    itself before the icon and word.
     """
 
     def __init__(self, palette: dict) -> None:
@@ -7235,6 +7259,9 @@ class _StatusDelegate(QStyledItemDelegate):
         return size
 
     def paint(self, painter, option, index) -> None:
+        tint = index.data(Qt.BackgroundRole)
+        if tint is not None and not (option.state & QStyle.State_Selected):
+            painter.fillRect(option.rect, tint)
         view_option = QStyleOptionViewItem(option)
         self.initStyleOption(view_option, index)
         text = view_option.text

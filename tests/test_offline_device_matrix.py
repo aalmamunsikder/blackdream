@@ -61,6 +61,32 @@ EXPECTED = {
         },
         "absent": {"SMCDellSensors", "AirportItlwm-laobamac"},
     },
+    "tiger_lake_laptop": {
+        # Apple's drivers stop at Big Sur; WhateverXe is what makes newer targets
+        # reachable, so the range starts there and WhateverGreen is never selected.
+        "native": ("20.6.0", "25.99.99"),
+        "suggested_major": 25,
+        "smbios": "MacBookPro16,2",
+        "disabled": "Intel Tiger Lake-HDMI",
+        "required": {
+            "Lilu", "VirtualSMC", "SMCBatteryManager", "WhateverXe", "AMFIPass-Mod",
+            "AirportItlwm-laobamac", "IntelMausiEthernet", "Sinetek-rtsx",
+        },
+        "absent": {"WhateverGreen", "NootedRed", "CtlnaAHCIPort"},
+    },
+    "rtx_desktop": {
+        # Apple has no Metal driver for Turing or newer; the NullMoth driver is what
+        # makes 15.5 and newer reachable, so WhateverGreen is never selected for it.
+        "native": ("24.5.0", "25.99.99"),
+        "suggested_major": 25,
+        "smbios": "MacPro7,1",
+        "disabled": None,
+        "required": {
+            "Lilu", "VirtualSMC", "AMFIPass", "AppleIGC", "RTL812xLucy",
+            "CpuTopologyRebuild", "RestrictEvents",
+        },
+        "absent": {"WhateverGreen", "WhateverXe", "NootRX", "NootedRed"},
+    },
 }
 
 

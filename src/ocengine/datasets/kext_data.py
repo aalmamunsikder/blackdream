@@ -162,6 +162,26 @@ kexts = [
         }
     ),
     KextInfo(
+        name = "WhateverXe",
+        description = "Xe-LP graphics patches for selected Intel iGPUs (replaces WhateverGreen)",
+        category = "Graphics",
+        min_darwin_version = "20.6.0",
+        requires_kexts = ["Lilu"],
+        conflict_group_id = "GPU",
+        github_repo = {
+            "owner": "b00t0x",
+            "repo": "WhateverXe"
+        },
+        download_info = {
+            # A fixed release asset with a digest published in its own SHA256SUMS.
+            # The graphics package it needs is installed on the target by the user;
+            # this archive is only the EFI-side kext.
+            "id": stable_download_id("b00t0x", "WhateverXe"),
+            "url": "https://github.com/b00t0x/WhateverXe/releases/download/0.5.0/WhateverXe-0.5.0-RELEASE.zip",
+            "sha256": "59cd4b82814b9ae5b5b1029612fc6c7a7ca0a32b7871a7d42e857a6158c3d3ec"
+        }
+    ),
+    KextInfo(
         name = "AppleALC", 
         description = "Native macOS HD audio for not officially supported codecs",
         category = "Audio",
@@ -877,9 +897,27 @@ kexts = [
         category = "Extras",
         min_darwin_version = "20.0.0",
         requires_kexts = ["Lilu"],
+        # One AMFIPass bundle may exist in an EFI; the upstream and WhateverXe builds
+        # must not be loaded side by side.
+        conflict_group_id = "AMFI",
         download_info = {
             "id": 926491527, 
             "url": "https://github.com/dortania/OpenCore-Legacy-Patcher/raw/main/payloads/Kexts/Acidanthera/AMFIPass-v1.4.1-RELEASE.zip"
+        }
+    ),
+    KextInfo(
+        name = "AMFIPass-Mod",
+        description = "The signed AMFIPass build WhateverXe's graphics stack requires",
+        category = "Extras",
+        min_darwin_version = "20.0.0",
+        requires_kexts = ["Lilu"],
+        conflict_group_id = "AMFI",
+        download_info = {
+            # Pinned to the commit that holds this extras archive, not to main: a
+            # branch URL with a digest would fail on the first upstream edit.
+            "id": stable_download_id("b00t0x", "AMFIPass-Mod"),
+            "url": "https://github.com/b00t0x/WhateverXe-Graphics/raw/3e5ca0385db0db3490e03864fd1f1076fb5a53a2/extras/AMFIPass-v1.4.1-Mod-RELEASE.zip",
+            "sha256": "71f41de42e355d2a83e6f093ef34a5b24d0a9c9a9085830b2317f1b874f56250"
         }
     ),
     KextInfo(

@@ -1,6 +1,6 @@
 # BlackDream — UI mockup specification
 
-**Version:** 3.7 · **Date:** 2026-10-24 · **Status:** every screen marked *built* is running code today
+**Version:** 3.9 · **Date:** 2026-10-25 · **Status:** every screen marked *built* is running code today
 
 3.0 is the shipped app window. It uses the **native window frame and title bar** on every platform
 and shows the real `File` / `View` / `Help` menu bar. Inside that client area the app paints its own
@@ -117,6 +117,34 @@ button and progress fill, and a dark console in both themes. The structure below
 shared cards, one log widget, one progress card — is unchanged. Anything describing a rounded panel
 inset from the window edge, painted traffic lights, a custom drag region, a hidden menu strip or a
 flat neutral canvas is 2.5 or older and is wrong.
+
+3.8 makes one more Intel iGPU reachable, through a named third-party patch. Xe-LP parts — Tiger
+Lake, Alder Lake-N/S and Raptor Lake-S/HX — are recognised from the report's device id and graded
+from `macOS Big Sur 11` to the newest release through **WhateverXe**, instead of being rejected as
+unsupported. The build selects `WhateverXe` and the Mod `AMFIPass` with it and leaves
+`WhateverGreen` out; `config.plist` carries `-allow3d -disablegfxfirmware` and
+`csr-active-config 03080000`. The devices table prints the range as
+`macOS Big Sur 11 to macOS Tahoe 26 with WhateverXe` and the `Status` column says
+`Limited support`, never `Supported`, because the graphics stack is installed on the target after
+the first boot. That step — WhateverXe Graphics 0.2.0, DVMT, SSDT-PNLF — is written as
+`WhateverXe-Graphics.txt` beside the built EFI; the app does not download or run it. The
+`Dependencies…` dialog also checks the plist's WhateverXe requirements: the two boot arguments, the
+`0x803` SIP value, the Mod `AMFIPass`, and a `-yTileDisable` that the project says not to use.
+
+3.9 adds the NVIDIA half of that story. Turing-and-later discrete GeForce cards — GTX 16,
+RTX 20/30/40/50, TITAN RTX and Quadro RTX — are recognised from the report's device id and graded
+from `macOS Sequoia 15.5` to the newest release through **NullMoth** NVIDIA driver 2.5.4, instead
+of ending the check as an unsupported GPU. The build adds the driver's boot arguments, sets
+`csr-active-config 430A0000`, disables `SecureBootModel`, selects `AMFIPass` and the
+`IONDRVSupport` block, and stops at the EFI boundary: the driver itself installs into the target's
+`/Library` and rebuilds its AuxKC. The devices table prints the range as
+`macOS Sequoia 15.5 to macOS Tahoe 26 with NullMoth` and the `Status` column says
+`Limited support`. That remaining step is written as `NullMoth-NVIDIA-Driver.txt` beside the built
+EFI; the app does not download or run it. The `Dependencies…` dialog also checks the plist's
+NullMoth requirements: the seven boot arguments, the `0xA43` SIP bits, `AMFIPass`, the
+IONDRVSupport exclusion, and any NVRM kext wrongly injected into the EFI. The version card
+also stops calling a patch-dependent range `Native support`, so the headline cannot
+contradict the row.
 
 2.1 added three utility views at the bottom of the sidebar — `Settings`, `Help` and `Donate`. They are
 pages, not modals: the same header, the same cards, and the same theme. Settings carries the theme
@@ -577,9 +605,12 @@ Native support: macOS Monterey 12 - macOS Tahoe 26
 With OpenCore Legacy Patcher: macOS Big Sur 11 - macOS Tahoe 26
 ```
 
-The second line appears only when the machine needs OCLP for some release. While a report is
-checking, or after it was rejected, the panel uses the neutral style; after rejection it uses the
-**error** style (red fill, red text) with `Compatibility check failed.`
+The second line appears only when the machine needs OCLP for some release. When any graded device
+reaches the range through a third-party patch — `WhateverXe` or `NullMoth` — the first line reads
+`Support: <range>` instead of `Native support: <range>`, because that range depends on the driver
+being installed on the target. While a report is checking, or after it was rejected, the panel uses
+the neutral style; after rejection it uses the **error** style (red fill, red text) with
+`Compatibility check failed.`
 
 The note under the panel is one or more sentences: `Status is computed for <selected release>.`,
 plus `The engine suggests <release>.` when the engine's suggestion differs from the selection, plus
@@ -625,6 +656,8 @@ shown in full wherever the column allows and always in the tooltip. The class is
 |---|---|
 | `Up to macOS Tahoe 26` | supported through the newest release |
 | `macOS Catalina 10.15 to macOS Tahoe 26` | supported in a range |
+| `macOS Big Sur 11 to macOS Tahoe 26 with WhateverXe` | supported in a range only through the WhateverXe patch |
+| `macOS Sequoia 15.5 to macOS Tahoe 26 with NullMoth` | supported in a range only through the NullMoth NVIDIA driver |
 | `Maximum support up to macOS High Sierra 10.13` | capped low |
 | `Unsupported` | graded and rejected |
 | `Unchecked` | the engine did not grade it |
@@ -639,7 +672,7 @@ selected in the `macOS version` card?*
 | Label | Tone | Meaning |
 |---|---|---|
 | `Supported` | ok (green) | native on the selected release |
-| `Limited support` | warn (amber) | works on the selected release only through OpenCore Legacy Patcher |
+| `Limited support` | warn (amber) | works on the selected release only through OpenCore Legacy Patcher, the WhateverXe graphics patch or the NullMoth NVIDIA driver |
 | `Not supported` | fail (red) | either no release supports it, it is too old for the selection, or it is too new and has no OCLP path |
 | `Not graded` | unknown (grey) | the engine carried no compatibility tuple to judge |
 
@@ -985,6 +1018,12 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
 - A three-column Devices table. 2.0 has four headers, always; the fourth is the target-relative
   `Status` (§7.5). It may only say one of the four labels in §16 — never `Compatible`, `Works`,
   `Best effort`, a bare check mark, or a fifth column such as `In build`.
+- A WhateverXe device marked `Supported` or described as native. Apple never shipped an Xe-LP
+  driver: the row's range ends in `with WhateverXe` and its status is `Limited support`, because
+  the graphics package is installed after the first boot.
+- A NullMoth device marked `Supported` or described as native. The driver is a third-party kernel
+  extension installed into `/Library`, not Apple firmware support: the row's range ends in
+  `with NullMoth` and its status is `Limited support`.
 - A coloured pill around the status word. The table draws a 15 px icon and a coloured word with no
   pill background; a `Not supported` or `Limited support` row carries the tone as a full-row tint.
 - The `macOS support` column painted red. It is plain text; the status word carries the judgement,
@@ -1968,10 +2007,16 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "limited": {
       "label": "Limited support",
       "details": [
-        "Limited support on «macOS name»: runs through OpenCore Legacy Patcher."
+        "Limited support on «macOS name»: runs through OpenCore Legacy Patcher.",
+        "Limited support on «macOS name»: graphics run through WhateverXe.",
+        "Supported up to «macOS name» through WhateverXe.",
+        "Limited support on «macOS name»: graphics run through NullMoth.",
+        "Supported up to «macOS name» through NullMoth."
       ],
       "recommendations": [
-        "This release needs OpenCore Legacy Patcher for this device."
+        "This release needs OpenCore Legacy Patcher for this device.",
+        "Install WhateverXe Graphics «version» after the first boot; keep WhateverGreen disabled.",
+        "Install the NullMoth NVIDIA driver «version» after the first boot; its kexts load from /Library, not from this EFI."
       ]
     },
     "unsupported": {
@@ -2014,6 +2059,7 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
     "failed": "Compatibility check failed.",
     "failed_note": "No devices were graded. Choose another Report.json and check it again.",
     "native": "Native support: «ranges»",
+    "patched": "Support: «ranges»",
     "oclp": "With OpenCore Legacy Patcher: «ranges»",
     "note": "Support ranges come from the report's own compatibility data.",
     "note_selected": "Status is computed for «macOS name».",
@@ -2783,7 +2829,7 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
       "closed": "Dependencies checked. Nothing was written to config.plist.",
       "jumped": "Jumped to «path».",
       "store": "advisor-dismissals.json",
-      "ruleset": 1,
+      "ruleset": 2,
       "export": {
         "header": "BlackDream dependency advisory",
         "ruleset": "Ruleset: «n»",

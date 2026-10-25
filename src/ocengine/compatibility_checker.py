@@ -111,6 +111,11 @@ class CompatibilityChecker:
             gpu_codename = gpu_props.get("Codename")
             device_id = gpu_props.get("Device ID")[5:]
 
+            # A report may be graded twice in one session; the flags are derived here,
+            # never carried over from the previous pass.
+            gpu_props.pop("WhateverXe", None)
+            gpu_props.pop("NullMoth", None)
+
             max_version = os_data.get_latest_darwin_version()
             min_version = os_data.get_lowest_darwin_version()
             ocl_patched_max_version = os_data.get_latest_darwin_version(include_beta=False)
@@ -118,7 +123,15 @@ class CompatibilityChecker:
             navi_requires_developer_mode = False
 
             if "Intel" in gpu_manufacturer:
-                if device_id.startswith(("0042", "0046")) and self.hardware_report.get("Motherboard").get("Platform") != "Desktop":
+                if (gpu_props.get("Device Type") == "Integrated GPU"
+                        and gpu_data.is_whateverxe_device_id(gpu_props.get("Device ID"))):
+                    # Apple's own drivers stop at Big Sur for these parts; WhateverXe
+                    # patches them from 11.7.11 through the newest release. The range
+                    # is what lets the rest of the engine offer those versions, and
+                    # the flag is what keeps the patch nature visible to the UI.
+                    min_version = gpu_data.WHATEVERXE_MIN_DARWIN
+                    gpu_props["WhateverXe"] = True
+                elif device_id.startswith(("0042", "0046")) and self.hardware_report.get("Motherboard").get("Platform") != "Desktop":
                     max_version = "17.99.99"
                 elif device_id.startswith("01") and not device_id[-2] in ("5", "6") and not device_id in ("0102", "0106", "010A"):
                     max_version = "17.99.99"
@@ -133,7 +146,11 @@ class CompatibilityChecker:
                 else:
                     max_version = min_version = None
 
-                if self.is_low_end_intel_cpu(self.hardware_report.get("CPU").get("Processor Name")):
+                # Alder Lake-N boards ship as Celeron or Pentium, and WhateverXe is
+                # the one path that makes their iGPU usable, so the low-end rule only
+                # applies to parts without a third-party backend.
+                if (self.is_low_end_intel_cpu(self.hardware_report.get("CPU").get("Processor Name"))
+                        and not gpu_props.get("WhateverXe")):
                     max_version = min_version = None
             elif "AMD" in gpu_manufacturer:
                 if "Navi 2" in gpu_codename:
@@ -171,7 +188,15 @@ class CompatibilityChecker:
                 else:
                     max_version = min_version = None
             elif "NVIDIA" in gpu_manufacturer:
-                if "Kepler" in gpu_codename:
+                if (gpu_props.get("Device Type") != "Integrated GPU"
+                        and gpu_data.is_nullmoth_device_id(gpu_props.get("Device ID"))):
+                    # Apple never shipped a Metal driver for these cards. NullMoth's
+                    # driver takes Turing and newer from macOS 15.5 through the newest
+                    # release; the flag is what keeps the patch nature visible to the
+                    # rest of the engine and to the UI.
+                    min_version = gpu_data.NULLMOTH_MIN_DARWIN
+                    gpu_props["NullMoth"] = True
+                elif "Kepler" in gpu_codename:
                     max_version = "20.99.99"
                 elif gpu_codename in ("Pascal", "Maxwell", "Fermi", "Tesla"):
                     max_version = "17.99.99"

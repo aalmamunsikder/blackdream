@@ -150,6 +150,114 @@ def coffee_lake_laptop() -> dict:
     }
 
 
+def tiger_lake_laptop() -> dict:
+    """11th-gen laptop whose Iris Xe iGPU exists only with WhateverXe.
+
+    Apple never shipped a driver for Xe-LP, so the engine grades this panel as
+    Big Sur 11.7.11 or newer through the WhateverXe patch rather than "Unsupported".
+    The internal eDP panel connects to the iGPU, which is what makes the report
+    realistic: a report that leaves the panel on another card nullifies it.
+    """
+    return {
+        "Motherboard": {"Name": "Lenovo ThinkPad X1 Carbon Gen 9", "Chipset": "Tiger Lake-LP",
+                        "Platform": "Laptop"},
+        "BIOS": {
+            "Version": "N32ET75W",
+            "Release Date": "11/10/2022",
+            "System Type": "x64",
+            "Firmware Type": "UEFI",
+            "Secure Boot": "Disabled",
+        },
+        "CPU": {
+            "Manufacturer": "Intel",
+            "Processor Name": "Intel Core i7-1165G7",
+            "Codename": "Tiger Lake-UP3",
+            "Core Count": "4",
+            "CPU Count": "1",
+            "SIMD Features": _INTEL_SIMD,
+        },
+        "GPU": {
+            "Intel Iris Xe Graphics": {
+                "Manufacturer": "Intel",
+                "Codename": "Tiger Lake-UP3",
+                "Device ID": "8086-9A49",
+                "Device Type": "Integrated GPU",
+                "Subsystem ID": "0x22C617AA",
+                "PCI Path": _pci(0, 2, 0),
+                "ACPI Path": "\\_SB.PCI0.GFX0",
+                "Resizable BAR": "Disabled",
+            }
+        },
+        "Monitor": {
+            "BOE 0x095F": {"Connector Type": "eDP", "Resolution": "1920x1200",
+                           "Connected GPU": "Intel Iris Xe Graphics"},
+        },
+        "Network": {
+            "Intel I219-V": {
+                "Bus Type": "PCI",
+                "Device ID": "8086-15B8",
+                "Subsystem ID": "0x22C617AA",
+                "PCI Path": _pci(0, 31, 6),
+                "ACPI Path": "\\_SB.PCI0.LANC",
+            },
+            "Intel Wi-Fi 6 AX201": {
+                "Bus Type": "PCI",
+                "Device ID": "8086-24F3",
+                "Subsystem ID": "0x00708086",
+                "PCI Path": _pci(0, 20, 2),
+                "ACPI Path": "\\_SB.PCI0.RP01.PXSX",
+            },
+        },
+        "Bluetooth": {
+            "Intel Bluetooth AX201": {"Bus Type": "USB", "Device ID": "8087-0AAA"},
+        },
+        "Sound": {
+            "Intel Tiger Lake-HDMI": {
+                "Bus Type": "PCI",
+                "Device ID": "8086-A0C8",
+                "Controller Device ID": "8086-A0C8",
+                "Audio Endpoints": ["Internal Speakers", "HDMI/DP"],
+            },
+            "Realtek ALC256": {
+                "Bus Type": "HDA",
+                "Device ID": "10EC-0256",
+                "Subsystem ID": "0x22C617AA",
+                "Audio Endpoints": ["ALC256 Analog"],
+            },
+        },
+        "USB Controllers": {
+            "Intel Tiger Lake USB": {
+                "Bus Type": "PCI",
+                "Device ID": "8086-9A13",
+                "PCI Path": _pci(0, 20, 0),
+                "ACPI Path": "\\_SB.PCI0.XHC",
+            },
+        },
+        "Input": {
+            "Synaptics TouchPad": {"Bus Type": "ACPI", "Device": "PS2M", "Device Type": "TouchPad"},
+            "ThinkPad Keyboard": {"Bus Type": "ACPI", "Device": "ATKD", "Device Type": "Keyboard"},
+        },
+        "Storage Controllers": {
+            "Intel Cannon Lake AHCI": {
+                "Bus Type": "PCI",
+                "Device ID": "8086-A282",
+                "PCI Path": _pci(0, 23, 0),
+                "ACPI Path": "\\_SB.PCI0.SATA",
+                "Disk Drives": ["Samsung SSD 860 EVO 1TB"],
+            },
+        },
+        "SD Controller": {
+            "Realtek Card Reader": {
+                "Bus Type": "PCI",
+                "Device ID": "10EC-525A",
+                "Subsystem ID": "0x22C617AA",
+                "PCI Path": _pci(0, 1, 0),
+                "ACPI Path": "\\_SB.PCI0.RP05.PXSA",
+            },
+        },
+    }
+
+
 def alder_lake_desktop() -> dict:
     """12th-gen desktop with a Navi 23 dGPU.
 
@@ -249,6 +357,33 @@ def alder_lake_desktop() -> dict:
     return report
 
 
+def rtx_desktop() -> dict:
+    """12th-gen desktop with an RTX 5060, the card the NullMoth driver is tested on.
+
+    Apple never shipped a Metal driver for Turing or newer, so upstream graded this
+    machine unsupported. The NullMoth driver takes it from macOS 15.5 through the
+    newest release. There is no iGPU for the same reason as ``alder_lake_desktop``.
+    """
+    report = alder_lake_desktop()
+    report["GPU"] = {
+        "NVIDIA GeForce RTX 5060": {
+            "Manufacturer": "NVIDIA",
+            "Codename": "Blackwell",
+            "Device ID": "10DE-2D05",
+            "Device Type": "Discrete GPU",
+            "Subsystem ID": "0x892B1462",
+            "PCI Path": _pci(0, 1, 0),
+            "ACPI Path": "\\_SB.PCI0.PEG0.PEGP",
+            "Resizable BAR": "Enabled",
+        }
+    }
+    report["Monitor"] = {
+        "LG 27GP850": {"Connector Type": "DP", "Resolution": "2560x1440",
+                       "Connected GPU": "NVIDIA GeForce RTX 5060"},
+    }
+    return report
+
+
 def raven_ridge_amd_laptop() -> dict:
     """Ryzen 5 2500U laptop: Vega 8 iGPU, the AMD Vanilla patch path."""
     report = coffee_lake_laptop()
@@ -335,20 +470,25 @@ def gpu_missing_from_report() -> dict:
 
 
 def gpu_unsupported() -> dict:
-    """Triggers GpuUnsupported: Turing/RTX cores have no macOS driver at all."""
+    """Triggers GpuUnsupported: a pre-Fermi NVIDIA GPU no rule covers.
+
+    Turing and newer are no longer a fatal report - the NullMoth driver is graded
+    for them - so this fixture uses a card that is neither listed by NullMoth nor
+    inside the Kepler/Pascal/Maxwell/Tesla ranges.
+    """
     report = coffee_lake_laptop()
     report["GPU"] = {
-        "NVIDIA GeForce RTX 2060": {
+        "NVIDIA GeForce 8800 GT": {
             "Manufacturer": "NVIDIA",
-            "Codename": "Turing",
-            "Device ID": "10DE-1F12",
+            "Codename": "G92",
+            "Device ID": "10DE-0193",
             "Device Type": "Discrete GPU",
             "PCI Path": _pci(0, 1, 0),
         },
     }
     report["Monitor"] = {
         "AOC 24G2": {"Connector Type": "HDMI", "Resolution": "1920x1080",
-                     "Connected GPU": "NVIDIA GeForce RTX 2060"},
+                     "Connected GPU": "NVIDIA GeForce 8800 GT"},
     }
     return report
 

@@ -1,14 +1,94 @@
-# BlackDream 0.9.0-beta.5
+# BlackDream 0.9.0-beta.6
 
 Released 2026-10-25 · pre-release · MIT licensed · no account, no telemetry, no ads,
 no update check.
 
-This is the fifth build distributed outside the development machine. It is a **beta**:
+This is the sixth build distributed outside the development machine. It is a **beta**:
 it asks for reports, it does not promise coverage. The feature set is frozen at what
-`docs/UI-MOCKUP-SPEC.md` v3.7 marks *built*; anything labelled *concept* or *planned* is
+`docs/UI-MOCKUP-SPEC.md` v3.9 marks *built*; anything labelled *concept* or *planned* is
 not in this binary.
 
-## What is new in beta 5
+## What is new in beta 6
+
+This build adds two third-party graphics paths. Both are graded as **limited support**,
+both change the generated EFI, and both stop at the EFI boundary: the driver itself is
+installed in the target macOS by hand, from the hand-off file the build writes.
+
+### WhateverXe for Xe-LP Intel graphics
+
+* **Xe-LP iGPUs are graded instead of rejected.** Tiger Lake, Alder Lake-N/S and Raptor
+  Lake-S/HX integrated graphics were unsupported by every macOS release in Apple's own
+  drivers. A report carrying one of those device ids is now graded from Big Sur 11.7.11 to
+  the newest release *through WhateverXe*, and the devices table says
+  `macOS Big Sur 11 to macOS Tahoe 26 with WhateverXe`. The `Status` column reads
+  `Limited support` on a release in that range, never `Supported`: the patch is a
+  third-party kernel extension, not an Apple driver.
+* **The build swaps WhateverGreen for WhateverXe.** A machine whose iGPU is in the patch
+  table selects `WhateverXe` and the Mod `AMFIPass` build instead of `WhateverGreen`, and
+  the engine says so in the log rather than silently leaving the dGPU path without a
+  graphics kext. The archives are pinned by digest, and the Mod `AMFIPass` is installed
+  under the bundle name it actually has, `AMFIPass.kext`, without displacing the upstream
+  AMFIPass row in the catalogue. A machine that also has a Navi 22 card is the one
+  exception: `NootRX` keeps the single graphics slot the engine allows, the Xe iGPU stays
+  on the native driver exactly as it did before this change, and the log says why.
+* **`config.plist` carries the project's required values.** `-allow3d` and
+  `-disablegfxfirmware` are added to `boot-args`, and `csr-active-config` becomes
+  `03080000` (0x803) instead of `030A0000`. Both the boot argument and the kext are read
+  back by the dependency advisor, which also reports a missing Mod `AMFIPass` and a
+  `-yTileDisable` the project says not to use.
+* **The graphics package is a hand-off, not an action.** WhateverXe's signed graphics
+  stack installs into the target's `/Library` and rebuilds its AuxKC, which is outside this
+  application's EFI-only boundary. The build writes `WhateverXe-Graphics.txt` beside the
+  EFI with the package version, the download URL, the DVMT setting, the SSDT-PNLF note and
+  the known issues; it does not download or run the package, and there is still no boot
+  button.
+
+### NullMoth NVIDIA driver for Turing-and-later cards
+
+* **Turing-and-later NVIDIA cards are graded instead of ending the check.** A discrete
+  GeForce card covered by the NullMoth driver — its release's 247 ids, or any NVIDIA
+  display id from `0x1E00` up, mirroring the installer's own rule — is now graded from
+  macOS 15.5 Sequoia to the newest release *through NullMoth*. Pre-Turing cards and
+  integrated NVIDIA graphics are unchanged: they still get the `gpu.unsupported` verdict,
+  and the devices table prints the range as
+  `macOS Sequoia 15.5 to macOS Tahoe 26 with NullMoth` with a `Limited support` status,
+  never `Supported`.
+* **`config.plist` carries the driver's OpenCore prerequisites.** The build adds
+  `nvfb=1 nvaccel=1 nvfbheads=4 -nvkmsnosmooth amfi_get_out_of_my_way=0x1 amfi=0x80
+  ipc_control_port_options=0` to `boot-args` (plus `nvrmsettle=10000` on Turing ids and
+  `gfxrst=4` when WhateverGreen is enabled for another device), sets `csr-active-config`
+  to `430A0000` (0x0A43), sets `SecureBootModel` to `Disabled`, deletes stale `boot-args`
+  and `csr-active-config` values from NVRAM, and excludes `IONDRVSupport` in
+  `Kernel/Block` unless the built-in panel runs on an Intel firmware framebuffer. It
+  selects `AMFIPass` and no graphics kext for the card; a machine that also has a
+  WhateverXe iGPU keeps the Mod `AMFIPass` build instead.
+* **The driver is a hand-off, not an action, for a stricter reason than WhateverXe's.**
+  NVRM, NVAccel, NVRMFB and NVRMAGDC live in `/Library/Extensions` and the AuxKC, so they
+  must never be injected from the EFI. The build writes `NullMoth-NVIDIA-Driver.txt`
+  beside the EFI with the driver version, the release URL and digest, the firmware rules
+  (Above 4G Decoding on, CSM off), the extension-approval and reboot steps, the expected
+  first-boot pause, and the uninstall command. It downloads and runs nothing.
+
+### Shared changes
+
+* **The dependency advisor checks both projects' requirements.** Ruleset 2 adds nine
+  NullMoth rules: missing boot arguments, missing SIP bits, a `SecureBootModel` that is
+  not `Disabled`, a missing `AMFIPass`, an `nv_disable=1` or `-wegnoegpu` that disables the
+  card, an NVRM/NVAccel/NVRMFB/NVRMAGDC kext injected into the EFI, a missing `gfxrst`
+  with WhateverGreen enabled, missing NVRAM deletes, and a missing or disabled
+  `IONDRVSupport` block. WhateverXe's rules sit in the same ruleset. Every row cites the
+  line it was read from; the dialog still explains and never edits the file.
+* **A patched range is labelled honestly.** When any device reaches the range through
+  WhateverXe or NullMoth, the version card reads `Support: …` instead of
+  `Native support: …`, and the devices table paints the documented amber and red row
+  tints again — the app-wide stylesheet had been swallowing them. The headline and the
+  `Limited support` row finally agree that a third-party driver is part of the path.
+* **The generated config has no duplicate NVRAM key.** The first full NullMoth build was
+  refused by `ocvalidate` because OpenCore's sample already deletes `boot-args` and the
+  build appended it again. The generator now appends a delete key only when it is absent;
+  a regression test builds the real config and counts the keys.
+
+## Carried from beta 5
 
 * **A checked boolean shows a tick.** The value tree, the `Selected entry` inspector's
   `On` box, the data dialog's `Show as text` and the advisor's `Show dismissed` filled a
@@ -31,12 +111,12 @@ not in this binary.
   audit behind these findings now measures spanned rows at their true width and reports
   nothing across eight views, both themes, three window sizes and twelve dialogs.
 * Nothing in the engine, the generated config, the installer or the file-writing rules
-  changed in this build.
+  changed in beta 5.
 
 ## Carried from beta 4
 
 Beta 4 added the dependency advisor, gave every vendor notice its own name, and sized the
-window's labels from their text. All three are unchanged in beta 5.
+window's labels from their text. All three are unchanged in beta 6.
 
 * **Dependency advisories** (`Configure EFI`, `Dependencies…`). Reads the kext, driver,
   boot-arg and quirk relationships the open `config.plist` already claims and reports the
@@ -69,7 +149,8 @@ window's labels from their text. All three are unchanged in beta 5.
 Beta 3 added six surfaces around the analysis the app already produces: two comparisons,
 two local stores, one checklist and one preview. They are unchanged in beta 5. Every one of
 them reads. None of them grades a device, writes a file, mounts a disk, boots anything,
-uploads anything or claims that a clean result proves a boot.
+uploads anything or claims that a clean result proves a boot. All are unchanged in
+beta 6.
 
 * **Compare releases** (`Compatibility`, `Compare releases…`). One row per graded device,
   one column per selectable macOS release, so the trade-off between 10.13 and Tahoe is
@@ -168,7 +249,7 @@ name, and the privacy-safe diagnostic bundle.
 
 | Environment | Status |
 | --- | --- |
-| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 923 automated tests |
+| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 997 automated tests |
 | Windows 10/11 | the bundle is built and smoke-tested natively on a Windows runner; **no full workflow run on real hardware** |
 | macOS 14+ on Intel | the `.app` is built and smoke-tested natively on an Intel macOS runner; Apple Silicon runs the same Intel bundle under Rosetta 2; **no full workflow run on real hardware** |
 | CPython 3.11–3.13 | syntax-verified against the 3.11 grammar; **not executed** |
@@ -177,13 +258,18 @@ Hardware coverage in this cycle is one real desktop machine plus the synthetic a
 recorded report corpus. Verdicts for devices nobody has reported are the weakest part
 of the product.
 
+The WhateverXe and NullMoth paths were exercised without their hardware: a synthetic
+report for each produced a complete EFI, and OpenCore's own `ocvalidate` reported no
+issues on both. Neither path has been booted on a Xe-LP or Turing/RTX machine, and
+neither target-side driver has been installed or run.
+
 macOS 14 is the floor because PySide6 6.12 ships `macosx_14_0` wheels. The build reads
 `LSMinimumSystemVersion` from the Qt framework it is about to bundle rather than typing
 a number, so the promise in `Info.plist` is one the bundled Qt can keep.
 
 ## What to test
 
-Six journeys, in this order. Each one ends in something you can look at, so a partial
+Seven journeys, in this order. Each one ends in something you can look at, so a partial
 run is still a report. Do them on a machine you own or are allowed to break, and keep the
 destructive ones on a stick you can afford to reformat — never your only boot drive.
 
@@ -213,6 +299,12 @@ destructive ones on a stick you can afford to reformat — never your only boot 
    hardware cannot run macOS. Change a `config.plist` outside the app and let it notice.
    Unplug the USB stick mid-write. A refusal should read as a refusal, with a reason, and
    should never leave the previous report's devices on screen.
+7. **The two graphics hand-offs, if you have the hardware.** On a Xe-LP iGPU or a
+   Turing/RTX card, choose a release in the graded range, build, and read
+   `WhateverXe-Graphics.txt` or `NullMoth-NVIDIA-Driver.txt` beside the EFI. Install the
+   driver in the target macOS as the hand-off describes, then report what the first boot
+   does. Without that hardware, check only that the row says `Limited support`, that the
+   range names the driver, and that the EFI carries the settings above.
 
 The weakest part of this build is verdict coverage for hardware nobody has reported, so a
 report from an unusual machine — a laptop with an Optimus GPU, a board with Intel VMD on,
@@ -249,6 +341,10 @@ launch. Long device names and empty ACPI folders are equally useful.
 * **The first-boot checklist is general advice.** It is not your motherboard's guide:
   Secure Boot enrolment, the boot-menu key and NVRAM behaviour differ per board, and
   BlackDream cannot read or change any of them.
+* **The two new graphics paths are verified offline, not on their hardware.** Both
+  generated EFIs pass `ocvalidate`, but no Xe-LP or Turing/RTX machine has booted them,
+  and neither driver has been installed. The hand-off files describe what remains, and a
+  report from either kind of machine is the most useful thing this beta can receive.
 * **Dependency advisories read the config, not the machine.** A rule sees only what the
   open `config.plist` claims, plus the release you selected — no firmware, ACPI dump or
   device verdict — so a clean result means "no relationship this ruleset knows is broken",
@@ -302,11 +398,11 @@ Every build publishes these files into `dist/release/`:
 
 | Name | What it is |
 | --- | --- |
-| `BlackDream-0.9.0-beta.5-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
-| `blackdream_0.9.0b5_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
-| `blackdream-0.9.0b5-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
-| `blackdream-0.9.0b5-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
-| `blackdream-0.9.0b5.tar.gz` | the source distribution |
+| `BlackDream-0.9.0-beta.6-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
+| `blackdream_0.9.0b6_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
+| `blackdream-0.9.0b6-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
+| `blackdream-0.9.0b6-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
+| `blackdream-0.9.0b6.tar.gz` | the source distribution |
 
 A Linux bundle needs glibc 2.35 or newer. That is not a preference: the build measures
 the versioned symbols inside the shipped Qt and glib libraries and refuses to publish a

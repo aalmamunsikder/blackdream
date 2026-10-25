@@ -1,6 +1,6 @@
 # BlackDream
 
-**Beta 5 · version `0.9.0-beta.5`** (package version `0.9.0b5`)
+**Beta 6 · version `0.9.0-beta.6`** (package version `0.9.0b6`)
 
 An OpenCore EFI builder you can run without a terminal. BlackDream takes a hardware
 report, tells you whether the machine can run the macOS release you picked, builds the
@@ -42,7 +42,7 @@ records how many tests passed for this specific build.
 Unpack the release archive and run the binary inside:
 
 ```sh
-tar -xzf BlackDream-0.9.0-beta.5-linux-amd64.tar.gz
+tar -xzf BlackDream-0.9.0-beta.6-linux-amd64.tar.gz
 ./BlackDream/BlackDream
 ```
 
@@ -51,15 +51,15 @@ launcher on `PATH`, writes the desktop entry and icons, and installs the ACPI he
 below as root, which the archive cannot do:
 
 ```sh
-sudo apt install ./blackdream_0.9.0b5_amd64.deb     # Debian, Ubuntu
-sudo dnf install ./blackdream-0.9.0b5-1.x86_64.rpm  # Fedora, openSUSE
+sudo apt install ./blackdream_0.9.0b6_amd64.deb     # Debian, Ubuntu
+sudo dnf install ./blackdream-0.9.0b6-1.x86_64.rpm  # Fedora, openSUSE
 blackdream
 ```
 
 Or install the wheel into a Python 3.11+ environment with PySide6 available:
 
 ```sh
-pip install blackdream-0.9.0b5-py3-none-any.whl
+pip install blackdream-0.9.0b6-py3-none-any.whl
 blackdream
 ```
 

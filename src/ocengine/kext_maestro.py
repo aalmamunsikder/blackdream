@@ -25,6 +25,7 @@ and a failed injection is reported instead of silently producing a broken EFI.
 """
 
 from ocengine.datasets import cpu_data
+from ocengine.datasets import gpu_data
 from ocengine.datasets import kext_data
 from ocengine.datasets import os_data
 from ocengine.datasets import pci_data
@@ -160,6 +161,10 @@ class KextMaestro:
         self.kexts = copy.deepcopy(kext_data.kexts)
         self.kext_choices = {}
         self._kext_choice_plans = {}
+        #: The display GPU this selection handed to the NullMoth driver, if any. The
+        #: driver itself is installed on the target, so the name is the only record
+        #: that the build owes the user a hand-off file.
+        self.nullmoth_gpu = None
 
     # ---- former prompts: pure plans --------------------------------------
 
@@ -667,6 +672,61 @@ class KextMaestro:
 
         selected_kexts = ["UTBDefault"]
 
+        # NullMoth keeps its kexts in /Library and loads them from the AuxKC, so the
+        # EFI only carries their Lilu/AMFIPass prerequisites. A GPU the checker
+        # nullified (an internal panel on another card) is not a display path and
+        # must not pull those in.
+        self.nullmoth_gpu = next((
+            gpu_name for gpu_name, gpu_props in hardware_report.get("GPU", {}).items()
+            if gpu_props.get("NullMoth")
+            and gpu_props.get("Compatibility") != (None, None)
+        ), None)
+
+        # WhateverXe replaces WhateverGreen outright on the iGPUs it supports; the
+        # project states the two must never be enabled together, mixed GPUs included.
+        whateverxe_gpu = next((
+            gpu_name for gpu_name, gpu_props in hardware_report.get("GPU", {}).items()
+            if gpu_props.get("WhateverXe") or (
+                gpu_props.get("Manufacturer") == "Intel"
+                and gpu_props.get("Device Type") == "Integrated GPU"
+                and gpu_data.is_whateverxe_device_id(gpu_props.get("Device ID")))
+        ), None)
+
+        # NootRX and WhateverXe share the one graphics slot the dependency table
+        # allows. On a machine that also has a Navi 22 card the card is the display
+        # GPU, so NootRX keeps the slot and the Xe iGPU falls back to the native
+        # driver -- exactly what the engine did before WhateverXe existed. Decide
+        # that here, because once the Mod AMFIPass build is appended it would
+        # survive the conflict check alone.
+        if whateverxe_gpu:
+            navi22_gpu = next((
+                gpu_name for gpu_name, gpu_props in hardware_report.get("GPU", {}).items()
+                if "Integrated GPU" not in gpu_props.get("Device Type")
+                and "Navi 22" in (gpu_props.get("Codename") or "")
+            ), None)
+            if navi22_gpu:
+                self.utils.log_message(
+                    "WhateverXe is not selected because NootRX keeps the graphics stack "
+                    "for the {}; the {} is left to the native driver.".format(
+                        navi22_gpu, whateverxe_gpu),
+                    level="warning")
+                whateverxe_gpu = None
+
+        if whateverxe_gpu and self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version(gpu_data.WHATEVERXE_MIN_DARWIN):
+            selected_kexts.extend(("WhateverXe", "AMFIPass-Mod"))
+
+        if self.nullmoth_gpu and self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version(gpu_data.NULLMOTH_MIN_DARWIN):
+            # Upstream AMFIPass, not the Mod build: NullMoth's README asks for the
+            # release build, and one EFI can only carry one AMFIPass identifier.
+            if not whateverxe_gpu:
+                selected_kexts.append("AMFIPass")
+            self.utils.log_message(
+                "{} is handed to the NullMoth NVIDIA driver; its kexts are installed "
+                "on the target and load from the AuxKC, not from this EFI.".format(
+                    self.nullmoth_gpu))
+        else:
+            self.nullmoth_gpu = None
+
         if "Intel" in hardware_report.get("CPU").get("Manufacturer"):
             selected_kexts.extend(("SMCProcessor", "SMCSuperIO"))
 
@@ -709,12 +769,30 @@ class KextMaestro:
             if "Integrated GPU" in gpu_props.get("Device Type"):
                 if "AMD" in gpu_props.get("Manufacturer"):
                     selected_kexts.append("NootedRed")
+                elif gpu_name == whateverxe_gpu:
+                    # Selected above, before any device could pull in WhateverGreen.
+                    pass
                 else:
                     selected_kexts.append("WhateverGreen")
             else:
+                if gpu_props.get("NullMoth"):
+                    # WhateverGreen is not this card's driver; NullMoth supplies it
+                    # from /Library. Do not write a kext that cannot help it.
+                    continue
+
                 if "Navi 22" in gpu_props.get("Codename"):
                     selected_kexts.append("NootRX")
                     break
+
+                if whateverxe_gpu:
+                    # WhateverGreen is the engine's only patch for these cards, and it
+                    # cannot be loaded beside WhateverXe. Say so instead of writing a
+                    # pair the project forbids.
+                    self.utils.log_message(
+                        "WhateverGreen is not selected because WhateverXe replaces it; "
+                        "the {} is left to the native driver.".format(gpu_name),
+                        level="warning")
+                    continue
 
                 if gpu_props.get("Codename") in {"Navi 21", "Navi 23"}:
                     gpu_choice = self.plan_amd_gpu_kext_choice(gpu_name, gpu_props, hardware_report)
@@ -889,7 +967,11 @@ class KextMaestro:
             selected_kexts.extend(("AppleIntelCPUPowerManagement", "AppleIntelCPUPowerManagementClient"))
 
         if needs_oclp:
-            selected_kexts.extend(("AMFIPass", "RestrictEvents"))
+            # WhateverXe already pulled the Mod build; loading upstream AMFIPass as
+            # well would put two bundles with one identifier in the EFI.
+            if not whateverxe_gpu:
+                selected_kexts.append("AMFIPass")
+            selected_kexts.append("RestrictEvents")
 
         selected_kexts = list(dict.fromkeys(selected_kexts))
         force_load_kexts = self.verify_kext_compatibility(selected_kexts, macos_version)
@@ -919,6 +1001,11 @@ class KextMaestro:
             if kext_name == "AirportItlwm-laobamac":
                 search_directory = os.path.join(self.ock_files_dir, kext_name + macos_version[:2])
                 kext_name = "AirportItlwm"
+            elif kext_name == "AMFIPass-Mod":
+                # The archive holds a bundle named AMFIPass.kext. Its own product
+                # folder keeps it apart from the upstream build with the same name.
+                search_directory = os.path.join(self.ock_files_dir, kext_name)
+                kext_name = "AMFIPass"
 
             source_kext_path = destination_kext_path = None
             for kext_path, _kind in self.utils.find_matching_paths(
@@ -939,7 +1026,10 @@ class KextMaestro:
                 else:
                     main_kext = kext_path.replace("\\", "/").split("/")[0]
                     main_kext_index = kext_data.kext_index_by_name.get(main_kext)
-                    if not main_kext_index or self.kexts[main_kext_index].checked:
+                    # AMFIPass-Mod's bundle is named AMFIPass, whose catalogue row is
+                    # the upstream build this selection deliberately replaced.
+                    if (kext.name == "AMFIPass-Mod" or not main_kext_index
+                            or self.kexts[main_kext_index].checked):
                         if os.path.splitext(os.path.basename(kext_path))[0] == kext_name:
                             source_kext_path = os.path.join(search_directory, kext_path)
                             destination_kext_path = os.path.join(kexts_directory, os.path.basename(kext_path))

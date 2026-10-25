@@ -1,5 +1,6 @@
 from ocengine.datasets import chipset_data
 from ocengine.datasets import cpu_data
+from ocengine.datasets import gpu_data
 from ocengine.datasets import mac_model_data
 from ocengine.datasets import kext_data
 from ocengine.datasets import os_data
@@ -446,7 +447,44 @@ class ConfigProdigy:
 
         return deviceproperties_add
 
-    def block_kext_bundle(self, kexts):
+    @staticmethod
+    def uses_nullmoth(hardware_report):
+        """True when a display GPU in this (customised) report runs through NullMoth."""
+        return any(
+            gpu_props.get("NullMoth") and gpu_props.get("Compatibility") != (None, None)
+            for gpu_props in (hardware_report or {}).get("GPU", {}).values()
+        )
+
+    @staticmethod
+    def _intel_panel_on_firmware_framebuffer(hardware_report, device_properties):
+        """The vendor's exception to the IONDRVSupport block.
+
+        A built-in panel on an Intel iGPU macOS has no driver for shows through the
+        firmware framebuffer, so excluding IONDRVSupport there leaves the screen dark.
+        The generated properties are the test the vendor's installer uses: no
+        ``AAPL,ig-platform-id`` and no ``disable-gpu`` means nothing drove that GPU.
+        WhateverXe is a real driver for its iGPUs, so its panel is not this case.
+        """
+        monitors = (hardware_report or {}).get("Monitor", {}) or {}
+        for gpu_name, gpu_props in (hardware_report or {}).get("GPU", {}).items():
+            if (gpu_props.get("Manufacturer") != "Intel"
+                    or gpu_props.get("Device Type") != "Integrated GPU"
+                    or gpu_props.get("WhateverXe")):
+                continue
+            if not any(
+                monitor_info.get("Connected GPU", gpu_name) == gpu_name
+                and monitor_info.get("Connector Type") in ("eDP", "Internal", "LVDS")
+                for monitor_info in monitors.values()
+            ):
+                continue
+            pci_path = gpu_props.get("PCI Path", "PciRoot(0x0)/Pci(0x2,0x0)")
+            generated = (device_properties or {}).get(pci_path) or {}
+            if "disable-gpu" in generated or "AAPL,ig-platform-id" in generated:
+                continue
+            return True
+        return False
+
+    def block_kext_bundle(self, kexts, hardware_report=None, device_properties=None):
         kernel_block = []
 
         if kexts[kext_data.kext_index_by_name.get("IOSkywalkFamily")].checked:
@@ -459,7 +497,22 @@ class ConfigProdigy:
                 "MinKernel": "23.0.0",
                 "Strategy": "Exclude"
             })
-        
+
+        # NVRMFB allocates display index 0, but the firmware framebuffer would take it
+        # first; the vendor excludes IONDRVSupport so the NVIDIA driver keeps it.
+        if (self.uses_nullmoth(hardware_report)
+                and not self._intel_panel_on_firmware_framebuffer(
+                    hardware_report, device_properties)):
+            kernel_block.append({
+                "Arch": "Any",
+                "Comment": "boot framebuffer IONDRVFramebuffer steals index 0 from NVRMFB",
+                "Enabled": True,
+                "Identifier": "com.apple.iokit.IONDRVSupport",
+                "MaxKernel": "",
+                "MinKernel": "",
+                "Strategy": "Exclude"
+            })
+
         return kernel_block
 
     def is_low_end_haswell_plus(self, processor_name, cpu_codename):
@@ -570,6 +623,29 @@ class ConfigProdigy:
         if config["Booter"]["Quirks"]["ResizeAppleGpuBars"] != 0 and self.is_intel_hedt_cpu(hardware_report.get("CPU").get("Processor Name"), hardware_report.get("CPU").get("Codename")):
             boot_args.append("npci=0x2000")
 
+        if (self.uses_nullmoth(hardware_report)
+                and self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version(gpu_data.NULLMOTH_MIN_DARWIN)):
+            # The driver's README requires these exact arguments: the framebuffer and
+            # accelerator, four display heads, and the AMFI/ipc relaxation WindowServer
+            # needs to load a driver bundle Apple did not sign.
+            nullmoth_args = [
+                "nvfb=1", "nvaccel=1", "nvfbheads=4", "-nvkmsnosmooth",
+                "amfi_get_out_of_my_way=0x1", "amfi=0x80", "ipc_control_port_options=0",
+            ]
+            # Turing's GSP needs longer than the default before the display arms. A
+            # user-chosen nvrmsettle is not possible here: the engine owns boot-args.
+            if any(gpu_props.get("NullMoth")
+                   and gpu_data.is_turing_device_id(gpu_props.get("Device ID"))
+                   for gpu_props in hardware_report.get("GPU", {}).values()):
+                nullmoth_args.append("nvrmsettle=10000")
+            # WhateverGreen's boot-screen copy can read a freed mapping when the
+            # NVIDIA display opens; the vendor turns it off with gfxrst=4.
+            if kexts[kext_data.kext_index_by_name.get("WhateverGreen")].checked:
+                nullmoth_args.append("gfxrst=4")
+            for argument in nullmoth_args:
+                if argument not in boot_args:
+                    boot_args.append(argument)
+
         for kext in kexts:
             if not kext.checked:
                 continue
@@ -578,7 +654,13 @@ class ConfigProdigy:
                 if not "-lilubetaall" in boot_args:
                     boot_args.append("-lilubetaall")
 
-            if kext.name == "WhateverGreen":
+            if kext.name == "WhateverXe":
+                # The plugin's own required pair. Its README states that with the
+                # signed graphics package and the Mod AMFIPass neither amfi=0x80 nor
+                # ipc_control_port_options=0 is needed, and -yTileDisable must not
+                # be used with the Display 13 backend.
+                boot_args.extend(("-allow3d", "-disablegfxfirmware"))
+            elif kext.name == "WhateverGreen":
                 if  any(tuple(map(int, "3840x2160".split("x"))) <= tuple(map(int, monitor_info.get("Resolution").split("x"))) for monitor_name, monitor_info in hardware_report.get("Monitor", {}).items()) and \
                     self.utils.parse_darwin_version(macos_version) < self.utils.parse_darwin_version("20.0.0"):
                     boot_args.append("-cdfon")
@@ -630,9 +712,21 @@ class ConfigProdigy:
             elif kext.name == "CpuTopologyRebuild":
                 boot_args.append("ctrsmt=full")
 
-        return " ".join(boot_args)
+        # The Intel iGPU path can also ask for ipc_control_port_options=0; one
+        # firmware key cannot hold the same token twice.
+        return " ".join(dict.fromkeys(boot_args))
     
-    def csr_active_config(self, macos_version):
+    def csr_active_config(self, macos_version, kexts=None, nullmoth=False):
+        # NullMoth's tested value 0x0A43 is a superset of WhateverXe's 0x803, so
+        # one value serves a machine that has both a NullMoth card and a Xe iGPU.
+        if nullmoth:
+            return "430A0000"
+
+        # WhateverXe's signed graphics stack requires SIP partially disabled at
+        # 0x803; full SIP is not supported by the project. Its own README is the
+        # source, and the UI reports the value alongside the kext.
+        if kexts and kexts[kext_data.kext_index_by_name.get("WhateverXe")].checked:
+            return "03080000"
         if self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("20.0.0"):
             return "030A0000"
         elif self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("18.0.0"):
@@ -692,9 +786,12 @@ class ConfigProdigy:
         config["Booter"]["Quirks"]["SetupVirtualMap"] = hardware_report.get("BIOS").get("Firmware Type") == "UEFI" and not hardware_report.get("Motherboard").get("Chipset") in chipset_data.AMDChipsets[11:17] + chipset_data.IntelChipsets[90:100]
         config["Booter"]["Quirks"]["SyncRuntimePermissions"] = "AMD" in hardware_report.get("CPU").get("Manufacturer") or hardware_report.get("Motherboard").get("Chipset") in chipset_data.IntelChipsets[90:100] + chipset_data.IntelChipsets[104:]
 
+        nullmoth = self.uses_nullmoth(hardware_report)
+
         config["DeviceProperties"]["Add"] = self.deviceproperties(hardware_report, disabled_devices, macos_version, kexts)
 
-        config["Kernel"]["Block"] = self.block_kext_bundle(kexts)
+        config["Kernel"]["Block"] = self.block_kext_bundle(
+            kexts, hardware_report, config["DeviceProperties"]["Add"])
         spoof_cpuid = self.spoof_cpuid(
             hardware_report.get("CPU").get("Processor Name"), 
             hardware_report.get("CPU").get("Codename"), 
@@ -742,8 +839,13 @@ class ConfigProdigy:
 
         del config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["#INFO (prev-lang:kbd)"]
         config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = self.boot_args(hardware_report, macos_version, needs_oclp, kexts, config)
-        config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["csr-active-config"] = self.utils.hex_to_bytes(self.csr_active_config(macos_version))
-        config["NVRAM"]["Delete"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].append("csr-active-config")
+        config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["csr-active-config"] = self.utils.hex_to_bytes(self.csr_active_config(macos_version, kexts, nullmoth))
+        # The sample already deletes boot-args; a duplicate fails ocvalidate. Re-deleting
+        # it also stops a macOS NVRAM write from overwriting the driver's arguments.
+        delete_keys = config["NVRAM"]["Delete"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]
+        for key in ("csr-active-config",) + (("boot-args",) if nullmoth else ()):
+            if key not in delete_keys:
+                delete_keys.append(key)
         config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["prev-lang:kbd"] = self.utils.hex_to_bytes("")
 
         config["PlatformInfo"]["Generic"].update(self.smbios.generate_smbios(smbios_model))

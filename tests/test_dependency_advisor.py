@@ -31,15 +31,20 @@ def _kext(name, **fields) -> dict:
 
 
 def _config(*, add=(), drivers=None, args=None, quirks=None, booter=None,
-            platform=None) -> dict:
+            platform=None, csr=None) -> dict:
     """A document with only the sections a rule needs, so a test cannot pass by
     accident on a section it never meant to supply."""
     document: dict = {"Kernel": {"Add": list(add)}}
     if drivers is not None:
         document["UEFI"] = {"Drivers": [{"Path": name, "Enabled": True}
                                         for name in drivers]}
-    if args is not None:
-        document["NVRAM"] = {"Add": {advisor.BOOT_SERVICES_GUID: {"boot-args": args}}}
+    if args is not None or csr is not None:
+        services = {}
+        if args is not None:
+            services["boot-args"] = args
+        if csr is not None:
+            services["csr-active-config"] = csr
+        document["NVRAM"] = {"Add": {advisor.BOOT_SERVICES_GUID: services}}
     if quirks is not None:
         document["Kernel"]["Quirks"] = dict(quirks)
     if booter is not None:
@@ -157,13 +162,13 @@ def test_every_citation_names_a_file_and_lines_that_exist_here():
 @pytest.mark.parametrize("source, token", [
     ("ocengine/datasets/kext_data.py:12", "requires_kexts"),
     ("ocengine/datasets/kext_data.py:13", "conflict_group_id"),
-    ("ocengine/kext_maestro.py:1201-1203", "BundleLibraries"),
-    ("ocengine/kext_maestro.py:1228-1231", 'bundle["Enabled"] = False'),
-    ("ocengine/kext_maestro.py:645-649", "requires_kexts"),
-    ("ocengine/config_prodigy.py:645", "OpenRuntime.efi"),
-    ("ocengine/config_prodigy.py:710", "AppleXcpmCfgLock"),
-    ("ocengine/config_prodigy.py:751", 'UpdateSMBIOSMode"] = "Custom"'),
-    ("ocengine/config_prodigy.py:744", "boot-args"),
+    ("ocengine/kext_maestro.py:1291-1293", "BundleLibraries"),
+    ("ocengine/kext_maestro.py:1317-1319", 'bundle["Enabled"] = False'),
+    ("ocengine/kext_maestro.py:650-657", "requires_kexts"),
+    ("ocengine/config_prodigy.py:739", "OpenRuntime.efi"),
+    ("ocengine/config_prodigy.py:807", "AppleXcpmCfgLock"),
+    ("ocengine/config_prodigy.py:853", 'UpdateSMBIOSMode"] = "Custom"'),
+    ("ocengine/config_prodigy.py:841", "boot-args"),
 ])
 def test_a_citation_lands_on_the_line_the_rule_claims(source, token):
     """Spot-checks that a citation is not merely in range but about the right thing."""
@@ -530,3 +535,94 @@ def test_the_default_dismissal_file_lives_in_the_local_state_directory(tmp_path,
 
     monkeypatch.setattr(advisor.paths, "current", lambda: _Paths())
     assert advisor.default_dismissal_path() == tmp_path / "state" / "advisor-dismissals.json"
+
+
+# --- WhateverXe's own three requirements ---------------------------------------------
+
+def _whateverxe_rules(report) -> list[str]:
+    return [rule for rule in _rules(report) if rule.startswith("whateverxe.")]
+
+
+def test_whateverxe_asks_for_its_arguments_sip_value_and_mod_amfipass():
+    document = _config(add=[_kext("Lilu"), _kext("WhateverXe")], args="-v")
+
+    report = advisor.advise(document, target="25.99.99")
+
+    arguments = _one(report, "whateverxe.boot_args")
+    assert "-allow3d" in arguments.trigger
+    assert "-disablegfxfirmware" in arguments.trigger
+    assert "boot-args reads '-v'" in arguments.evidence
+
+    sip = _one(report, "whateverxe.csr")
+    assert "not set" in sip.trigger
+    assert "03080000" in sip.advice
+
+    assert _one(report, "whateverxe.amfipass").severity == advisor.WARNING
+
+
+def test_a_complete_whateverxe_config_raises_none_of_its_rules():
+    document = _config(
+        add=[_kext("Lilu"), _kext("WhateverXe"), _kext("AMFIPass")],
+        args="-v -allow3d -disablegfxfirmware",
+        csr=bytes.fromhex("03080000"),
+    )
+
+    report = advisor.advise(document, target="25.99.99")
+
+    assert _whateverxe_rules(report) == []
+    assert report.clean
+
+
+def test_a_wrong_sip_value_is_reported_in_the_form_the_plist_stores():
+    document = _config(
+        add=[_kext("Lilu"), _kext("WhateverXe"), _kext("AMFIPass")],
+        args="-v -allow3d -disablegfxfirmware",
+        csr=bytes.fromhex("030A0000"),
+    )
+
+    report = advisor.advise(document, target="25.99.99")
+
+    assert "030A0000" in _one(report, "whateverxe.csr").trigger
+    assert _whateverxe_rules(report) == ["whateverxe.csr"]
+
+
+def test_ytiledisable_is_reported_even_when_everything_else_is_right():
+    document = _config(
+        add=[_kext("Lilu"), _kext("WhateverXe"), _kext("AMFIPass")],
+        args="-v -allow3d -disablegfxfirmware -yTileDisable",
+        csr=bytes.fromhex("03080000"),
+    )
+
+    report = advisor.advise(document, target="25.99.99")
+
+    assert _whateverxe_rules(report) == ["whateverxe.ytiledisable"]
+    assert "framebuffer" in _one(report, "whateverxe.ytiledisable").advice.lower()
+
+
+def test_without_whateverxe_none_of_its_rules_run():
+    document = _config(add=[_kext("Lilu"), _kext("AMFIPass")],
+                       args="-v -yTileDisable")
+
+    report = advisor.advise(document, target="25.99.99")
+
+    assert _whateverxe_rules(report) == []
+
+
+def test_whateverxe_and_whatevergreen_read_as_one_graphics_conflict():
+    document = _config(add=[_kext("Lilu"), _kext("WhateverXe"), _kext("WhateverGreen")])
+
+    report = advisor.advise(document, target="25.99.99")
+
+    conflicts = [item for item in report.advisories if item.rule == "conflict.group"]
+    assert len(conflicts) == 2
+    assert all("graphics support" in item.trigger for item in conflicts)
+
+
+def test_the_amfi_group_is_named_for_a_reader():
+    document = _config(add=[_kext("AMFIPass"), _kext("AMFIPass-Mod")])
+
+    report = advisor.advise(document)
+
+    conflicts = [item for item in report.advisories if item.rule == "conflict.group"]
+    assert len(conflicts) == 2
+    assert all("AMFI bypass" in item.trigger for item in conflicts)

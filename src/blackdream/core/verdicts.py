@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ocengine.compatibility_checker import CompatibilityChecker
-from ocengine.datasets import os_data
+from ocengine.datasets import gpu_data, os_data
 from ocengine.utils import Utils
 
 _CHECKER = CompatibilityChecker()
@@ -51,6 +51,8 @@ class Verdict:
     oclp: tuple | None = None
     #: Vendor / Device ID / Subsystem, as the report states them.
     fields: tuple[tuple[str, str], ...] = ()
+    #: A third-party backend the engine graded instead of native Apple support.
+    patch: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,7 +120,19 @@ def _is_device_block(block: dict) -> bool:
 
 def _one(section: str, name: str, device: dict) -> Verdict:
     compatibility = device.get("Compatibility")
-    text = _CHECKER.show_macos_compatibility(compatibility)
+    # A third-party backend makes the range reachable, but not natively. Saying
+    # "Up to macOS ..." the way the engine words a native GPU would hide the patch.
+    if device.get("WhateverXe"):
+        patch = "WhateverXe"
+    elif device.get("NullMoth"):
+        patch = "NullMoth"
+    else:
+        patch = ""
+    if patch and compatibility and compatibility[0]:
+        text = "{} to {} with {}".format(
+            _name(compatibility[-1]), _name(compatibility[0]), patch)
+    else:
+        text = _CHECKER.show_macos_compatibility(compatibility)
     if text == "Unsupported":
         # Graded, and rejected. A laptop's HDMI audio device lands here on almost
         # every report, which is why it is a red row and not a blocked build.
@@ -131,7 +145,8 @@ def _one(section: str, name: str, device: dict) -> Verdict:
                    class_label(section, name),
                    compatibility=compatibility,
                    oclp=device.get("OCLP Compatibility"),
-                   fields=_raw_fields(device))
+                   fields=_raw_fields(device),
+                   patch=patch)
 
 
 def label(device: dict) -> str:
@@ -208,10 +223,30 @@ def _bounds(pair) -> tuple | None:
 
 
 def _name(darwin) -> str:
+    """A marketing name for a Darwin version, tuple or ``x.y.z`` string.
+
+    A release name alone would lose a patch-level floor: the NullMoth driver starts
+    at Darwin 24.5.0, which is macOS 15.5, not 15.0. The ``.99`` sentinels the engine
+    uses for "the newest release" carry no such information, so they stay out.
+    """
+    if isinstance(darwin, (tuple, list)):
+        parts = tuple(darwin)
+        text = ".".join(str(part) for part in parts)
+    else:
+        text = str(darwin)
+        try:
+            parts = tuple(int(part) for part in text.split("."))
+        except ValueError:
+            parts = ()
     try:
-        return os_data.get_macos_name_by_darwin(darwin) or str(darwin)
+        name = os_data.get_macos_name_by_darwin(text)
     except Exception:
-        return str(darwin)
+        name = None
+    if not name:
+        return text
+    if len(parts) > 1 and 0 < parts[1] < 99:
+        return "{}.{}".format(name, parts[1])
+    return name
 
 
 def target_status(verdict: Verdict, target: str | None = None,
@@ -237,6 +272,11 @@ def target_status(verdict: Verdict, target: str | None = None,
 
     low, high = native
     if target is None:
+        if verdict.compatible is True and verdict.patch:
+            return Status(
+                "limited", "Limited support",
+                "Supported up to {} through {}.".format(_name(high), verdict.patch),
+                _patch_recommendation(verdict.patch))
         if verdict.compatible is True:
             return Status(
                 "supported", "Supported",
@@ -260,6 +300,11 @@ def target_status(verdict: Verdict, target: str | None = None,
                 chosen, _name(low)),
             "Choose {} or newer.".format(_name(low)))
     if point <= high:
+        if verdict.patch:
+            return Status(
+                "limited", "Limited support",
+                "Limited support on {}: graphics run through {}.".format(chosen, verdict.patch),
+                _patch_recommendation(verdict.patch))
         return Status(
             "supported", "Supported",
             "Supported on {}.".format(chosen),
@@ -275,6 +320,17 @@ def target_status(verdict: Verdict, target: str | None = None,
         "unsupported", "Not supported",
         "Not supported on {}. Last native support is {}.".format(chosen, _name(high)),
         "Choose {} or earlier for native support.".format(_name(high)))
+
+
+def _patch_recommendation(patch: str) -> str:
+    if patch == "WhateverXe":
+        return ("Install WhateverXe Graphics {} after the first boot; "
+                "keep WhateverGreen disabled.".format(gpu_data.WHATEVERXE_GRAPHICS_VERSION))
+    if patch == "NullMoth":
+        return ("Install the NullMoth NVIDIA driver {} after the first boot; its "
+                "kexts load from /Library, not from this EFI.".format(
+                    gpu_data.NULLMOTH_DRIVER_VERSION))
+    return "This device runs through {}.".format(patch)
 
 
 def friendly_range(darwins: tuple[str, str] | None) -> str:

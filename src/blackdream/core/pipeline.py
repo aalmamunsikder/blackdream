@@ -27,6 +27,7 @@ from ocengine import utils as ocengine_utils
 from ocengine.acpi_guru import ACPIGuru
 from ocengine.compatibility_checker import CompatibilityChecker
 from ocengine.config_prodigy import ConfigProdigy
+from ocengine.datasets import gpu_data, kext_data
 from ocengine.fatal import EngineError
 from ocengine.gathering_files import gatheringFiles
 from ocengine.hardware_customizer import HardwareCustomizer
@@ -119,6 +120,76 @@ _STEPS = (
 # Written into every output folder the build creates. Its presence is what lets a
 # retry replace that folder; anything else is someone's directory and is kept.
 OUTPUT_MARKER = ".blackdream-build.json"
+
+#: The steps WhateverXe cannot have performed for the user. The graphics package
+#: writes the target's /Library and rebuilds its AuxKC, which is outside this
+#: application's EFI-only boundary, so it is handed off as text.
+WHATEVERXE_HANDOFF = """WhateverXe 0.5.0 - what still has to happen on the Mac
+=========================================================
+
+This EFI loads WhateverXe.kext after Lilu, the Mod AMFIPass build, the boot arguments
+-allow3d -disablegfxfirmware, and csr-active-config 03080000 (0x803). It does not
+contain WhateverGreen, which must not be enabled alongside WhateverXe.
+
+1. Boot the target macOS with this EFI first.
+2. Install WhateverXe Graphics {graphics} from
+   https://github.com/b00t0x/WhateverXe-Graphics/releases
+   It writes the signed graphics stack under /Library and rebuilds the AuxKC.
+   BlackDream does not download or run this package.
+3. Set DVMT Pre-Allocated to 96 MB in firmware. If the board fixes it at 60 MB,
+   add -igfxdvmt to boot-args and set framebuffer-patch-enable = 01000000 and
+   framebuffer-stolenmem = 0000C003 (Data) on the iGPU.
+4. Internal-panel brightness needs SSDT-PNLF, which this build includes on laptops.
+5. Do not use -yTileDisable with the Display 13 backend.
+
+WhateverXe and its graphics package are experimental and BSD-3 licensed, and cover
+only the Xe-LP GPUs listed in the project's README. Read its known issues before
+relying on them: https://github.com/b00t0x/WhateverXe
+"""
+
+
+#: The steps the NullMoth driver cannot have performed for the user. Its kexts and
+#: Metal plugin live in /Library and the AuxKC -- inside the target macOS, not the
+#: ESP -- so the build hands the installation off as text and never runs it.
+NULLMOTH_HANDOFF = """NullMoth NVIDIA driver {version} - what still has to happen on the Mac
+======================================================================
+
+This EFI carries the driver's OpenCore prerequisites: Lilu and AMFIPass, boot-args
+nvfb=1 nvaccel=1 nvfbheads=4 -nvkmsnosmooth amfi_get_out_of_my_way=0x1 amfi=0x80
+ipc_control_port_options=0 (plus nvrmsettle=10000 on Turing, and gfxrst=4 when
+WhateverGreen is enabled), csr-active-config 430A0000 (0x0A43), SecureBootModel
+Disabled, and an IONDRVSupport exclude unless the built-in panel runs on an Intel
+firmware framebuffer. It does not contain the driver itself. NVRM, NVAccel, NVRMFB
+and NVRMAGDC load from /Library/Extensions and the AuxKC; do not add them to
+Kernel/Add or EFI/OC/Kexts.
+
+1. Boot the target macOS with this EFI first, then install on that system.
+   Download 1401-Mac-{version}.dmg (the app) or nullmoth-nvidia-{version}.tar.gz from
+   {releases}
+   The tarball's SHA-256 is {sha256}. BlackDream downloads and runs neither.
+2. In firmware: Above 4G Decoding On, CSM Off. Keep this EFI's ResizeGpuBars
+   and ResizeAppleGpuBars values; the driver sizes the BAR itself after macOS
+   starts, and forced resizing can stop firmware before the picker.
+3. The macOS install must be x86_64. When macOS asks, allow the extensions in
+   System Settings > Privacy & Security, then reboot once more.
+4. The first start with the driver can pause for up to a minute at "PCI
+   configuration end" while the GPU comes up.
+5. This EFI carries no nv_disable=1, -wegnoegpu, agdpmod=pikera, WhateverGreen
+   NVIDIA patch or NVIDIA DeviceProperties for the card. The vendor says none
+   are needed; remove any you add back.
+6. On an AMD CPU, the vendor requires Algrey's Fix PAT rather than Shaneee's;
+   its installer switches that pair when it finds them.
+7. Verify: kmutil showloaded --list-only | grep nullmoth (four lines), and
+   system_profiler SPDisplaysDataType (Metal: supported).
+8. Uninstall: sudo ./uninstall.sh && sudo shutdown -r now, or choose the 1401
+   Remove NVIDIA driver entry in the OpenCore picker.
+
+NullMoth's driver, kexts and Metal plugin are PolyForm Noncommercial 1.0.0, the
+shader translator is LGPL-3.0, and the GSP firmware is NVIDIA's. Personal,
+research, educational and non-profit use only; commercial use is not allowed.
+Most testing is on an RTX 5060, so other Turing-and-newer cards are less proven.
+Read the project's notes before relying on it: https://github.com/nullmoth/nvidia-macos-driver
+"""
 
 
 class Pipeline:
@@ -271,6 +342,8 @@ class Pipeline:
         token.check()
         stage("Building OpenCore EFI", list(_STEPS), 4)
         self._prune(result, config_data)
+        self._write_whateverxe_handoff(result)
+        self._write_nullmoth_handoff(result)
         self._verify_output(result)
 
         stage("Building OpenCore EFI", list(_STEPS), len(_STEPS), done=True)
@@ -309,6 +382,33 @@ class Pipeline:
         result.mkdir(parents=True, exist_ok=True)
         (result / OUTPUT_MARKER).write_text(
             '{"tool": "BlackDream", "format": 1}\n', encoding="utf-8")
+
+    def _write_whateverxe_handoff(self, result: Path) -> None:
+        """Leave the steps this build cannot take beside the EFI it did produce."""
+        index = kext_data.kext_index_by_name.get("WhateverXe")
+        if index is None or not self.kexts.kexts[index].checked:
+            return
+        note = result / "WhateverXe-Graphics.txt"
+        note.write_text(
+            WHATEVERXE_HANDOFF.format(graphics=gpu_data.WHATEVERXE_GRAPHICS_VERSION),
+            encoding="utf-8")
+        self.utils.log_message(
+            "WhateverXe: this EFI is complete, but the graphics stack is installed "
+            "on the target afterwards. Read {}.".format(note.name), level="warning")
+
+    def _write_nullmoth_handoff(self, result: Path) -> None:
+        """Leave the driver's on-target installation beside the EFI, not in it."""
+        if not self.kexts.nullmoth_gpu:
+            return
+        note = result / "NullMoth-NVIDIA-Driver.txt"
+        note.write_text(NULLMOTH_HANDOFF.format(
+            version=gpu_data.NULLMOTH_DRIVER_VERSION,
+            releases=gpu_data.NULLMOTH_RELEASES_URL,
+            sha256=gpu_data.NULLMOTH_TARBALL_SHA256), encoding="utf-8")
+        self.utils.log_message(
+            "NullMoth: this EFI carries the prerequisites for the {}; the driver "
+            "itself is installed on the target. Read {}.".format(
+                self.kexts.nullmoth_gpu, note.name), level="warning")
 
     @staticmethod
     def _prune(result: Path, config_data: dict[str, Any]) -> None:
