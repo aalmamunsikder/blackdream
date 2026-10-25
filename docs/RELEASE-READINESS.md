@@ -449,3 +449,38 @@ was corrected to the measured 921 passed / 2 skipped / 923 collected at the same
 The roadmap's Phase 4 exit gate now has a build to test against: a tester with this
 release can open `Configure EFI ▸ Dependencies…`, classify a finding, and press
 `Dismiss`, which is the evidence §9 says is still missing.
+
+## 11. Beta 5 is published, and it is the only release
+
+`v0.9.0-beta.5` was tagged on `0fb3730`, and run `40159852208` built all three legs,
+passed their audits, and published the prerelease. It carries the editor tick mark, the
+rounded dropdowns, and the two dashboard fixes below.
+
+Both fixes were found by CI rather than here, and both are about the device table at the
+window floor:
+
+* **Run `40157758797`, Linux and Windows:** the `macOS support` header elided to
+  `macOS suppor`. The 90 px support floor was a guard, not a measurement; DejaVu Sans is
+  about 6 % wider than the reference font and needs 116 px for that header plus its 8 px
+  inset each side. The table now measures the header in the font on screen and refuses to
+  be narrower than its four column floors together, so the dashboard stacks rather than
+  eliding a header — the same "bends before it clips" rule the rest of the layout follows.
+* **Run `40159115808`, Windows:** the first fix reserved only the 165 px name floor, so a
+  wide platform font left the 24 px name column at 259 px while the support column sat at
+  its 266 px ceiling and lost text. The support column now yields below that ceiling down
+  to its header, measured against the widest name actually on screen. The window floor
+  still reserves only the 165 px floor, so a long device name cannot inflate it.
+
+Verification of the published bytes: all eight assets were downloaded and
+`sha256sum -c SHA256SUMS.txt` printed `OK` for all seven archives; the unpacked Linux
+bundle reports `blackdream 0.9.0-beta.5`; the `.deb` reports `blackdream 0.9.0b5` on
+`amd64` with `libc6 (>= 2.35)`, the `.rpm` carries `blackdream-0.9.0b5-1`, the wheel
+names `blackdream-0.9.0b5`, and the wheel's `blackdream/ui/main_window.py` contains the
+new column-fitting code. With `dist/release` present the suite is 922 passed, 1 skipped
+of 923 collected — the published-name contract that skips without those files now runs
+and passes against the real asset names.
+
+The three earlier prereleases were deleted with their tags at the owner's instruction, so
+`v0.9.0-beta.5` is the only release on the repository. Beta 4's notes and assets remain
+in the release history of this document and of `RELEASE-NOTES.md`; the GitHub release
+itself is gone, which means its downloads are too.
