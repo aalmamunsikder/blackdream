@@ -58,7 +58,8 @@ _TABLE_FILE = re.compile(r"^(?P<name>[A-Z][A-Za-z0-9]{1,15}(-?[0-9]{1,3})?)\.aml
 class TablesUnsupported(EngineError):
     code = "acpi.unsupported"
     title = "These firmware tables cannot be read from inside the app"
-    detail = "Dumping tables from sysfs is a Linux feature; this is {}.".format(sys.platform)
+    detail = ("Reading the firmware tables is built into the Linux and Windows builds; "
+              "this is {}.".format(sys.platform))
     remediation = ("Point the ACPI tables folder at a folder of .aml tables exported by "
                    "Hardware Sniffer.",)
 
@@ -85,7 +86,7 @@ class TablesDumpFailed(EngineError):
     code = "acpi.dump_failed"
     title = "The firmware tables could not be read"
     remediation = ("Try again. If it repeats, this machine does not expose a readable DSDT "
-                   "even to root.",
+                   "to this app.",
                    "Point the ACPI tables folder at a folder of .aml tables exported by "
                    "Hardware Sniffer instead.")
 

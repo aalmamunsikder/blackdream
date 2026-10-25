@@ -1,6 +1,6 @@
 # BlackDream
 
-**Beta 6 · version `0.9.0-beta.6`** (package version `0.9.0b6`)
+**Beta 7 · version `0.9.0-beta.7`** (package version `0.9.0b7`)
 
 An OpenCore EFI builder you can run without a terminal. BlackDream takes a hardware
 report, tells you whether the machine can run the macOS release you picked, builds the
@@ -29,9 +29,13 @@ boot button and writes no firmware.
 
 * **Linux x86_64** — the packaged build in `dist/`, CPython 3.14, Qt 6.12, X11 and
   Wayland sessions. Every workflow below was exercised here.
-* **Windows and macOS** — the code paths exist and are unit-tested on Linux against
-  recorded fixtures, but no Windows or macOS machine has run this beta build. Treat the
-  `.spec` output for those platforms as unverified until someone installs it.
+* **Windows 11 x86_64** — the beta 6 build was installed and run on a real Tiger Lake
+  laptop, where the Compatibility view rendered and a hardware scan ran. That run is how
+  the unprivileged ACPI gap this build closes was found. The Windows reader itself is
+  covered by the Windows CI runner, not yet by a physical machine.
+* **macOS** — the code paths exist and are unit-tested on Linux against recorded
+  fixtures, but no Mac has run this beta. Treat the `.spec` output for macOS as unverified
+  until someone installs it.
 
 The automated suite in `tests/` covers the safety rules described below; it does not
 cover real firmware, real drives, or the platform installers. `docs/RELEASE-NOTES.md`
@@ -42,7 +46,7 @@ records how many tests passed for this specific build.
 Unpack the release archive and run the binary inside:
 
 ```sh
-tar -xzf BlackDream-0.9.0-beta.6-linux-amd64.tar.gz
+tar -xzf BlackDream-0.9.0-beta.7-linux-amd64.tar.gz
 ./BlackDream/BlackDream
 ```
 
@@ -51,15 +55,15 @@ launcher on `PATH`, writes the desktop entry and icons, and installs the ACPI he
 below as root, which the archive cannot do:
 
 ```sh
-sudo apt install ./blackdream_0.9.0b6_amd64.deb     # Debian, Ubuntu
-sudo dnf install ./blackdream-0.9.0b6-1.x86_64.rpm  # Fedora, openSUSE
+sudo apt install ./blackdream_0.9.0b7_amd64.deb     # Debian, Ubuntu
+sudo dnf install ./blackdream-0.9.0b7-1.x86_64.rpm  # Fedora, openSUSE
 blackdream
 ```
 
 Or install the wheel into a Python 3.11+ environment with PySide6 available:
 
 ```sh
-pip install blackdream-0.9.0b6-py3-none-any.whl
+pip install blackdream-0.9.0b7-py3-none-any.whl
 blackdream
 ```
 
@@ -90,6 +94,15 @@ sudo cp BlackDream/_internal/blackdream/hardware/com.blackdream.dumpacpi.policy 
 Without it, point **ACPI tables** at a folder of `.aml` tables you dumped another way,
 or export a report with the tables included. Declining the authorization window is not
 a hardware failure and is never reported as one.
+
+## Reading ACPI tables on Windows needs nothing extra
+
+Hardware Sniffer runs unprivileged, and its own `acpidump` step needs elevation, so a
+scan usually finishes without firmware tables. The app reads them itself through the
+Windows firmware table API and writes the same `ACPI` folder the Linux helper produces.
+There is no prompt, no download and no driver: the read is user-mode and opens no
+privileged code path. `Read ACPI tables` on the Compatibility view repeats it on demand.
+If Hardware Sniffer did export tables, those are adopted first.
 
 ## Where things live
 

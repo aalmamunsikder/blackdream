@@ -22,7 +22,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import fixtures
-from blackdream.hardware import CollectionRejected, CollectionUnsupported
+from blackdream.hardware import CollectionRejected, CollectionUnsupported, Dumped
+from blackdream.hardware import TablesDumpFailed
 from blackdream.hardware import windows
 from blackdream.hardware.windows import CollectionFailed, WindowsCollector
 from ocengine.runtime import RecordingSink, set_sink
@@ -106,11 +107,43 @@ def test_a_failed_acpi_dump_still_accepts_a_complete_report(supported, sink, tmp
             json.dumps(fixtures.alder_lake_desktop()), encoding="utf-8")
         return 5, "", "firmware tables are unreadable"
 
-    collected = WindowsCollector(gather=FakeGather(), runner=runner).collect(tmp_path)
+    def reader(directory, is_cancelled=None):
+        raise TablesDumpFailed(detail="the firmware exposes no readable tables")
+
+    collected = WindowsCollector(gather=FakeGather(), runner=runner,
+                                 acpi_reader=reader).collect(tmp_path)
 
     assert collected.acpi_dir is None
     assert collected.report["CPU"]["Processor Name"] == "Intel Core i5-12600K"
     assert ("warning", "Hardware Sniffer could not dump the firmware ACPI tables.") in sink.logs
+    assert ("warning", "No ACPI tables could be read: the firmware exposes no readable "
+                       "tables") in sink.logs
+
+
+def test_the_scan_reads_the_tables_itself_when_the_tool_writes_none(
+        supported, sink, tmp_path):
+    """The tool's ACPI step needs an administrator token and the scan does not, so a
+    complete report with no tables is ordinary; the app fills the gap in-process."""
+    def runner(argv, is_cancelled):
+        Path(argv[-1], "Report.json").write_text(
+            json.dumps(fixtures.alder_lake_desktop()), encoding="utf-8")
+        return 5, "", "could not dump the firmware ACPI tables"
+
+    def reader(directory, is_cancelled=None):
+        acpi = Path(directory) / "ACPI"
+        acpi.mkdir(exist_ok=True)
+        (acpi / "DSDT.aml").write_bytes(table_bytes("DSDT"))
+        (acpi / "SSDT.aml").write_bytes(table_bytes("SSDT"))
+        return Dumped(acpi_dir=acpi, tables=("DSDT", "SSDT"))
+
+    collected = WindowsCollector(gather=FakeGather(), runner=runner,
+                                 acpi_reader=reader).collect(tmp_path)
+
+    assert collected.acpi_dir == tmp_path / "ACPI"
+    assert sorted(p.name for p in collected.acpi_dir.iterdir()) == [
+        "DSDT.aml", "SSDT.aml"]
+    assert ("info", "Hardware Sniffer wrote no ACPI tables; reading them from Windows."
+            ) in sink.logs
 
 
 def test_the_documented_exit_codes_become_typed_failures(supported, sink, tmp_path):

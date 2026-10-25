@@ -1,16 +1,48 @@
-# BlackDream 0.9.0-beta.6
+# BlackDream 0.9.0-beta.7
 
 Released 2026-10-25 · pre-release · MIT licensed · no account, no telemetry, no ads,
 no update check.
 
-This is the sixth build distributed outside the development machine. It is a **beta**:
+This is the seventh build distributed outside the development machine. It is a **beta**:
 it asks for reports, it does not promise coverage. The feature set is frozen at what
-`docs/UI-MOCKUP-SPEC.md` v3.9 marks *built*; anything labelled *concept* or *planned* is
+`docs/UI-MOCKUP-SPEC.md` v3.10 marks *built*; anything labelled *concept* or *planned* is
 not in this binary.
 
-## What is new in beta 6
+## What is new in beta 7
 
-This build adds two third-party graphics paths. Both are graded as **limited support**,
+Beta 7 fixes the first failure a real Windows machine found in beta 6: the build stopped
+with `pipeline.build_not_ready` because the report arrived without ACPI tables.
+
+* **Windows tables are read by the app, without elevation.** Hardware Sniffer runs as the
+  logged-in user, but its own `acpidump` step needs an elevated token, so in the app's
+  normal path it writes `Report.json` and no tables. Beta 6 therefore reached Build with
+  an empty ACPI folder and refused. The app now reads the firmware itself through the
+  Windows firmware table API: `EnumSystemFirmwareTables` and `GetSystemFirmwareTable` for
+  the DSDT and the enumerated tables, and `HKLM\HARDWARE\ACPI` for the SSDT instances,
+  which `GetSystemFirmwareTable` returns only once per signature. It writes the same
+  `ACPI` subfolder of `<NAME>.aml` files the Linux helper produces, so the engine cannot
+  tell which platform read them.
+* **`Read ACPI tables` is drawn on Windows.** The link button used to appear only where
+  polkit could authorize the read. It now appears on Windows too, with the tooltip
+  `Read the firmware tables from this machine; no administrator rights needed`. Its click
+  runs the same job, logs one line per table, is cancellable, and never opens an
+  authentication window.
+* **The scan adopts the tool's tables before reading its own.** When Hardware Sniffer did
+  export ACPI tables, they are used as before; the in-process read is the fallback, and
+  the log says which path ran. A second dump replaces only the app's own `<NAME>.aml`
+  files, so two DSDTs are never left in one folder.
+* **The red card tells the truth on every platform.** The `pipeline.build_not_ready`
+  bullet now reads `Or press Read ACPI tables on the Compatibility view to read this
+  machine's firmware.` instead of naming a Linux-only administrator prompt. The
+  `acpi.unsupported` detail says the read is built into the Linux and Windows builds
+  rather than calling it a Linux feature.
+
+The boundary is unchanged: the read is user-mode, writes only into the scan or report
+folder, downloads nothing, installs no driver, mounts nothing, and has no boot button.
+
+## Carried from beta 6
+
+Beta 6 added two third-party graphics paths. Both are graded as **limited support**,
 both change the generated EFI, and both stop at the EFI boundary: the driver itself is
 installed in the target macOS by hand, from the hand-off file the build writes.
 
@@ -116,7 +148,7 @@ installed in the target macOS by hand, from the hand-off file the build writes.
 ## Carried from beta 4
 
 Beta 4 added the dependency advisor, gave every vendor notice its own name, and sized the
-window's labels from their text. All three are unchanged in beta 6.
+window's labels from their text. All three are unchanged in beta 7.
 
 * **Dependency advisories** (`Configure EFI`, `Dependencies…`). Reads the kext, driver,
   boot-arg and quirk relationships the open `config.plist` already claims and reports the
@@ -150,7 +182,7 @@ Beta 3 added six surfaces around the analysis the app already produces: two comp
 two local stores, one checklist and one preview. They are unchanged in beta 5. Every one of
 them reads. None of them grades a device, writes a file, mounts a disk, boots anything,
 uploads anything or claims that a clean result proves a boot. All are unchanged in
-beta 6.
+beta 7.
 
 * **Compare releases** (`Compatibility`, `Compare releases…`). One row per graded device,
   one column per selectable macOS release, so the trade-off between 10.13 and Tahoe is
@@ -249,14 +281,19 @@ name, and the privacy-safe diagnostic bundle.
 
 | Environment | Status |
 | --- | --- |
-| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 997 automated tests |
-| Windows 10/11 | the bundle is built and smoke-tested natively on a Windows runner; **no full workflow run on real hardware** |
+| Linux x86_64, CPython 3.14, Qt 6.12, X11 and Wayland | the bundle is built and smoke-tested on glibc 2.35; 1009 automated tests |
+| Windows 10/11 | the bundle is built and smoke-tested natively on a Windows runner; beta 6 was installed and run on a real Windows 11 laptop (Compatibility view and a hardware scan), where it exposed the ACPI gap beta 7 closes; **no EFI built and no boot on Windows** |
 | macOS 14+ on Intel | the `.app` is built and smoke-tested natively on an Intel macOS runner; Apple Silicon runs the same Intel bundle under Rosetta 2; **no full workflow run on real hardware** |
 | CPython 3.11–3.13 | syntax-verified against the 3.11 grammar; **not executed** |
 
-Hardware coverage in this cycle is one real desktop machine plus the synthetic and
-recorded report corpus. Verdicts for devices nobody has reported are the weakest part
-of the product.
+Hardware coverage in this cycle is one real desktop machine, one real Windows 11 laptop,
+plus the synthetic and recorded report corpus. Verdicts for devices nobody has reported
+are the weakest part of the product.
+
+The Windows ACPI read was exercised against a fake firmware provider in the suite and by
+a real-firmware test that runs on the Windows CI runner, which reads that runner's own
+DSDT. It has not yet been run on the laptop that reported the beta 6 failure; that run is
+what this build is asking for.
 
 The WhateverXe and NullMoth paths were exercised without their hardware: a synthetic
 report for each produced a complete EFI, and OpenCore's own `ocvalidate` reported no
@@ -277,10 +314,12 @@ destructive ones on a stick you can afford to reformat — never your only boot 
    macOS release, then read a device row and open its details. Change the release and
    confirm the `Status` column changes with it. `Compare releases…` should agree with
    that column for every release it lists.
-2. **ACPI → build → folder.** Resolve whatever the ACPI card asks for, build the EFI
-   folder, and open it when the last stage finishes. All five stages should appear, in
-   order, with timings that move. Then start a build and cancel it: the active stage ends
-   as cancelled, the later ones stay pending, and no error card appears.
+2. **ACPI → build → folder.** On Windows, collect the report and look at the ACPI row:
+   the scan should fill it from the tables it read itself, with `<n> .aml file(s) found`
+   and no authorization window. Press `Read ACPI tables` once to repeat the read. Then
+   build the EFI folder and open it when the last stage finishes. All five stages should
+   appear, in order, with timings that move. Then start a build and cancel it: the active
+   stage ends as cancelled, the later ones stay pending, and no error card appears.
 3. **Edit → validate → save → backup.** Open the built `config.plist`, change one
    reversible value, run validation, save, and confirm `config.plist.bak` sits beside it
    with the previous bytes. Edit something else and press `Revert` — the on-disk version
@@ -318,7 +357,14 @@ launch. Long device names and empty ACPI folders are equally useful.
   exist. From an unpacked archive the helper is user-writable, so polkit will refuse it:
   follow the two `sudo install` / `sudo cp` commands in `README.md`, or point **ACPI
   tables** at `.aml` tables you exported elsewhere. Declining the authorization window is
-  reported as a refusal, never as a hardware fault.
+  reported as a refusal, never as a hardware fault. The Windows path has no helper, no
+  package step and no prompt.
+* **The Windows ACPI read is new.** It has been tested against a fake provider and on the
+  Windows CI runner's firmware, not on a range of physical boards. A machine that exposes
+  no readable DSDT, or whose SSDT instance keys are unlike the ones seen so far, fails as
+  `acpi.dump_failed` and leaves the ACPI row untouched; such a report is worth more than a
+  successful one. The read happens in-process, so it returns what Windows exposes rather
+  than a byte-for-byte copy of a dump taken by another tool.
 * **Only FAT32 volumes appear as installer targets**, and only if they are already
   mounted and writable by your session. An NTFS or ext4 stick is not offered, because
   firmware on the target machine has to read the volume.
@@ -398,11 +444,11 @@ Every build publishes these files into `dist/release/`:
 
 | Name | What it is |
 | --- | --- |
-| `BlackDream-0.9.0-beta.6-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
-| `blackdream_0.9.0b6_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
-| `blackdream-0.9.0b6-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
-| `blackdream-0.9.0b6-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
-| `blackdream-0.9.0b6.tar.gz` | the source distribution |
+| `BlackDream-0.9.0-beta.7-<os>-<arch>.tar.gz` | the application bundle: unpack it and run the launcher inside. `.zip` on Windows; on macOS the archive contains `BlackDream.app` |
+| `blackdream_0.9.0b7_<arch>.deb` | Debian/Ubuntu package: `/opt/blackdream`, a launcher on `PATH`, the desktop entry, and the ACPI helper installed as root |
+| `blackdream-0.9.0b7-1.<arch>.rpm` | the same tree for Fedora/openSUSE; `Requires: glibc >= 2.35` |
+| `blackdream-0.9.0b7-py3-none-any.whl` | the wheel, for a machine that already has Python 3.11 or newer |
+| `blackdream-0.9.0b7.tar.gz` | the source distribution |
 
 A Linux bundle needs glibc 2.35 or newer. That is not a preference: the build measures
 the versioned symbols inside the shipped Qt and glib libraries and refuses to publish a

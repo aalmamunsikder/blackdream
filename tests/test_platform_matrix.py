@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from blackdream import hardware  # noqa: E402
-from blackdream.hardware import acpi, collect, windows  # noqa: E402
+from blackdream.hardware import acpi, acpi_windows, collect, windows  # noqa: E402
 from blackdream.hardware.acpi import TablesUnsupported  # noqa: E402
 from blackdream.hardware.collect import CollectionUnsupported  # noqa: E402
 from ocengine import dsdt, gathering_files, paths  # noqa: E402
@@ -138,7 +138,7 @@ def test_an_unknown_host_has_no_macserial_build(monkeypatch):
 @pytest.mark.parametrize("platform,builtin,windows_scan,acpi_read", [
     ("linux", True, False, True),
     ("linux2", True, False, True),
-    ("win32", False, True, False),
+    ("win32", False, True, True),
     ("darwin", False, False, False),
     ("freebsd14", False, False, False),
 ])
@@ -147,7 +147,8 @@ def test_capabilities_follow_the_host(monkeypatch, platform,
     monkeypatch.setattr(sys, "platform", platform)
     assert collect.supported() is builtin
     assert windows.supported() is windows_scan
-    assert acpi.supported() is acpi_read
+    assert acpi.supported() is (platform.startswith("linux"))
+    assert acpi_windows.supported() is windows_scan
     assert hardware.collect_supported() is (builtin or windows_scan)
     assert hardware.acpi_supported() is acpi_read
 

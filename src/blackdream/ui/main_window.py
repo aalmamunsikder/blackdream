@@ -861,7 +861,9 @@ class MainWindow(QMainWindow):
         self.acpi_button = QPushButton("Read ACPI tables")
         self.acpi_button.setObjectName("link")
         self.acpi_button.setToolTip(
-            "Read the firmware tables from this machine; asks for administrator rights")
+            "Read the firmware tables from this machine; no administrator rights needed"
+            if sys.platform == "win32"
+            else "Read the firmware tables from this machine; asks for administrator rights")
         self.acpi_button.setVisible(hardware.acpi_supported())
         self.acpi_button.clicked.connect(self._on_dump_acpi)
         machine.addWidget(self.collect_button)
@@ -2437,7 +2439,7 @@ class MainWindow(QMainWindow):
         target = self._report_path.parent if self._report_path else self._scan_dir()
 
         def body(token):
-            return hardware.AcpiDumper().dump(target, is_cancelled=lambda: token.cancelled)
+            return hardware.dump_acpi(target, is_cancelled=lambda: token.cancelled)
 
         self._start([_Step("Reading ACPI tables", body, self._after_dump_acpi, timeout=260)])
 

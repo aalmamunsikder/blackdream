@@ -9,7 +9,10 @@ release digest -- the executable is never executed from an unverified download.
 The tool writes the ``Report.json`` the rest of the pipeline consumes. When it can
 read the firmware, it writes the ACPI tables beside it, and those are adopted as the
 folder the build's ACPI step needs, so a Windows user does not have to find them
-separately.
+separately. The tool's own ACPI step needs an elevated token (it loads the ACPICA
+dump driver), and the scan is deliberately unprivileged; when it comes back without
+tables, the app reads the same tables itself through the Win32 firmware-table calls,
+which need no elevation. Either way the report and its tables arrive together.
 
 Nothing in this module runs on another platform: :func:`supported` gates both the
 button and :meth:`WindowsCollector.collect`.
@@ -33,6 +36,7 @@ from ocengine.utils import Utils
 
 from blackdream.core.pipeline import Cancelled
 
+from . import acpi_windows
 from .collect import (
     REPORT_FILE,
     Collected,
@@ -88,13 +92,17 @@ class WindowsCollector:
     ``gather`` and ``runner`` are injectable so the orchestration can be tested on
     any host: the real gatherer downloads and verifies the CLI, and the real runner
     starts it without a console window and with a deadline and a cancel check.
+    ``acpi_reader`` is the fallback taken when the tool writes no tables; it defaults
+    to the in-app Windows reader.
     """
 
     def __init__(self, utils: Utils | None = None, gather=None,
-                 runner: Callable | None = None, timeout: float = SNIFFER_TIMEOUT) -> None:
+                 runner: Callable | None = None, timeout: float = SNIFFER_TIMEOUT,
+                 acpi_reader: Callable | None = None) -> None:
         self.utils = utils or Utils()
         self._gather = gather
         self._runner = runner or self._run_sniffer
+        self._acpi_reader = acpi_reader
         self.timeout = timeout
 
     def collect(self, out_dir: str | Path,
@@ -119,6 +127,8 @@ class WindowsCollector:
         code, out, err = self._runner([executable, "-e", "-o", str(directory)],
                                       is_cancelled)
         acpi_dir = _adopt_tables(directory, sink)
+        if acpi_dir is None:
+            acpi_dir = self._read_tables(directory, sink, is_cancelled)
 
         if not report_path.is_file():
             raise CollectionFailed(detail=_failure_detail(code, err, out))
@@ -146,6 +156,28 @@ class WindowsCollector:
     def _executable(self) -> str:
         gatherer = self._gather or gathering_files.gatheringFiles()
         return gatherer.gather_hardware_sniffer()
+
+    def _read_tables(self, directory: Path, sink, is_cancelled) -> Path | None:
+        """Read the tables in process when the tool's own dump wrote none.
+
+        The scan runs unprivileged and the tool's ACPI step needs an elevated token,
+        so a complete report with no tables is an ordinary outcome rather than a
+        failed scan. This path needs no elevation. If it fails too, the report is
+        kept and the build will ask for a folder.
+        """
+        reader = self._acpi_reader
+        if reader is None:
+            if not acpi_windows.supported():
+                return None
+            reader = acpi_windows.WindowsAcpiDumper().dump
+        sink.log("info", "Hardware Sniffer wrote no ACPI tables; reading them from Windows.")
+        try:
+            dumped = reader(directory, is_cancelled=is_cancelled)
+        except EngineError as failure:
+            sink.log("warning", "No ACPI tables could be read: {}".format(
+                failure.detail or failure.title))
+            return None
+        return dumped.acpi_dir if dumped is not None else None
 
     def _run_sniffer(self, argv: list[str],
                      is_cancelled: Callable[[], bool] | None) -> tuple[int, str, str]:

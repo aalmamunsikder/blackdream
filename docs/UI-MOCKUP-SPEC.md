@@ -1,6 +1,6 @@
 # BlackDream — UI mockup specification
 
-**Version:** 3.9 · **Date:** 2026-10-25 · **Status:** every screen marked *built* is running code today
+**Version:** 3.10 · **Date:** 2026-10-25 · **Status:** every screen marked *built* is running code today
 
 3.0 is the shipped app window. It uses the **native window frame and title bar** on every platform
 and shows the real `File` / `View` / `Help` menu bar. Inside that client area the app paints its own
@@ -145,6 +145,18 @@ NullMoth requirements: the seven boot arguments, the `0xA43` SIP bits, `AMFIPass
 IONDRVSupport exclusion, and any NVRM kext wrongly injected into the EFI. The version card
 also stops calling a patch-dependent range `Native support`, so the headline cannot
 contradict the row.
+
+3.10 makes `Read ACPI tables` a Windows feature as well. A scan through Hardware Sniffer runs
+without elevation, and the tool's own `acpidump` step therefore writes no tables in the app's
+normal path; a report arrived with an empty ACPI folder and the build stopped at
+`pipeline.build_not_ready`. The app now reads the firmware tables itself through the Windows
+firmware table API — `EnumSystemFirmwareTables` and `GetSystemFirmwareTable` for the DSDT and the
+enumerated tables, `HKLM\HARDWARE\ACPI` for the SSDT instances — and writes them into the same
+`ACPI` subfolder the Linux helper produces. The read is user-mode, opens no authentication window,
+downloads nothing, and touches no driver. When Hardware Sniffer does export tables, they are still
+adopted first; the in-process read is the fallback. The button is now drawn on Windows too, its
+tooltip there reads `Read the firmware tables from this machine; no administrator rights needed`,
+and the S6 build card's second bullet names the button without naming a platform.
 
 2.1 added three utility views at the bottom of the sidebar — `Settings`, `Help` and `Donate`. They are
 pages, not modals: the same header, the same cards, and the same theme. Settings carries the theme
@@ -488,9 +500,9 @@ the sidebar a `sidebarFill` gradient, over the silk.
 
 Only S1–S11, S14, S16–S34 may be presented as current product. S12, S13 and S15 must
 be labelled *concept*. S14 and S16 follow host capability, not a platform guess: `Collect hardware`
-is drawn on Linux and Windows, `Read ACPI tables` on Linux only, and each is absent rather than
-disabled where its capability is missing. A macOS frame shows neither; a Windows frame shows Collect
-only, because the Windows scan adopts the ACPI tables Hardware Sniffer exports.
+is drawn on Linux and Windows, `Read ACPI tables` on Linux and Windows as well, and each is absent
+rather than disabled where its capability is missing. A macOS frame shows neither; a Windows frame
+shows both, because the Windows build reads the firmware tables in-process without elevation.
 `Settings`, `Help` and `Donate` are one screen each, not modal overlays. `Installer` and
 `Configure EFI` are full views with their own cards; neither borrows a session card.
 
@@ -528,7 +540,8 @@ from the sidebar. No splash, no dialog.
   `~/Library/Application Support/blackdream/builds/…`, Windows
   `%LOCALAPPDATA%\blackdream\builds\…`), and `Browse…`. Under them, two text links:
   `Collect hardware` — **drawn on Linux and Windows** — and `Read ACPI tables` — **drawn on Linux
-  only**. Each is absent, never disabled, where its capability is missing.
+  and Windows** (a Linux read asks through polkit's window, a Windows read asks for nothing).
+  Each is absent, never disabled, where its capability is missing.
 - **`macOS version`:** a 30 px monitor tile and an empty 34 px combo on one row, then the summary
   panel in its *empty* style (neutral field fill, muted text):
   `Load a Report.json, or collect hardware from this machine.` on Linux,
@@ -878,7 +891,7 @@ something it needs`, detail `No DSDT is loaded and no ACPI table folder was supp
 
 ```
 • Point the report at the ACPI folder inside the exported SysReport.
-• On Linux, press Read ACPI tables (asks for administrator) on the Compatibility view.
+• Or press Read ACPI tables on the Compatibility view to read this machine's firmware.
 ```
 
 The card appears on the `Build EFI` view, where the button was pressed. The row that fixes it is one
@@ -990,8 +1003,8 @@ width of a bar.
 a button, and the open view never disables a control. `Cancel` is always visible and enabled only
 while a job runs; hiding it until then made the 2 × 2 actions grid reflow mid-job. The two optional
 link buttons follow host capability: `Collect hardware` is drawn on Linux and Windows,
-`Read ACPI tables` on Linux only, and neither is drawn where the capability is missing — a disabled
-button would promise a feature the build does not have.
+`Read ACPI tables` on Linux and Windows as well, and neither is drawn where the capability is
+missing — a disabled button would promise a feature the build does not have.
 
 `Settings`, `Help` and `Donate` do not change the session state matrix. Their controls stay enabled
 while a job runs: the theme picker is local, the diagnostics button only reads paths and the last
@@ -1148,7 +1161,7 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
 | Drop target | whole window for `.json` | whole window | whole window (Wayland: the file-chooser fallback must be shown) |
 | Reveal folder | Finder | Explorer | the session's file manager |
 | Collect hardware | absent — load a report exported on the target PC | Hardware Sniffer, downloaded, SHA-256 pinned, run with `-e -o` | local sysfs/DMI scan, no elevation, no network |
-| Read ACPI tables | absent | absent — the scan adopts the tables Hardware Sniffer exports | privileged helper via polkit's own window |
+| Read ACPI tables | absent | in-process read of the Windows firmware table API; no elevation, no download | privileged helper via polkit's own window |
 | Installer image | Apple's recovery service over HTTPS; chunklist verified against Apple's embedded key; image cached under Application Support | same, under `%LOCALAPPDATA%` | same, under `$XDG_DATA_HOME` |
 | USB target | mounted FAT32 under `/Volumes`; no formatting, no block-device access | mounted FAT32 drive letters from `Win32_LogicalDisk`; no formatting | mounted FAT32 from `/proc/mounts`; no formatting |
 | Config validation | `ocvalidate` from the pinned OpenCorePkg release, digest-verified into the app tools directory and run on a temporary copy | same, PE binary | same, ELF binary |
@@ -1225,10 +1238,12 @@ The two host backends differ, and a mockup must not blend them:
   in-process scan, and it never asks for an administrator password: the tool runs as the user, and a
   failed table dump downgrades to no ACPI folder rather than a failed report.
 
-**S16 Read ACPI tables.** The Linux-only link button, under the ACPI row, labelled
-`Read ACPI tables` with the tooltip `Read the firmware tables from this machine; asks for
-administrator rights` — the tooltip names the cost because the cost is a system authentication
-window the user was not expecting. Clicking it starts the job `Reading ACPI tables`: controls
+**S16 Read ACPI tables.** The link button, under the ACPI row, labelled `Read ACPI tables`,
+drawn on Linux and on Windows. On Linux its tooltip is `Read the firmware tables from this
+machine; asks for administrator rights` — the tooltip names the cost because the cost is a system
+authentication window the user was not expecting. On Windows the tooltip is `Read the firmware
+tables from this machine; no administrator rights needed`, because the same read goes through the
+Windows firmware table API in-process. Clicking it starts the job `Reading ACPI tables`: controls
 disable, `Cancel` appears, the log gets `== Reading ACPI tables ==` and then one line per table, and
 the task box names the job. There is no progress bar and no percentage: the wait is a human deciding,
 not work being measured.
@@ -1237,13 +1252,16 @@ On success the ACPI row fills with `<report folder>/ACPI` and an ok check-circle
 `<n> .aml file(s) found`. On refusal (`acpi.refused`) or on a machine where the privileged helper is
 not installed (`acpi.helper_missing`) the error card says so and the row stays a hollow dot with
 `No folder chosen` — a denied authorisation is not a hardware fault and must not be drawn as one.
+Those two failures belong to the Linux path; on Windows there is no helper to install and no prompt
+to refuse, and an unreadable table set is `acpi.dump_failed` with the row unchanged.
 In a source checkout the helper is *never* installed, because root must not execute a file the user
 can edit, so this is the state a developer sees first; the card gives the one-time install command
 rather than pretending.
 
-Draw the authentication window as the desktop's own, outside the app's frame, or not at all. It is
-polkit's window, not ours, and no BlackDream mockup may contain a password field: the app never asks
-for a secret, which is the whole difference from the terminal route it replaces.
+On Linux, draw the authentication window as the desktop's own, outside the app's frame, or not at
+all. It is polkit's window, not ours, and no BlackDream mockup may contain a password field: the app
+never asks for a secret, which is the whole difference from the terminal route it replaces. The
+Windows read opens no window at all.
 
 **S20–S22 Installer.** A full view with two cards, in order, and a trailing stretch.
 
@@ -2350,14 +2368,14 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
       "detail": "No DSDT is loaded and no ACPI table folder was supplied.",
       "bullets": [
         "Point the report at the ACPI folder inside the exported SysReport.",
-        "On Linux, press Read ACPI tables (asks for administrator) on the Compatibility view."
+        "Or press Read ACPI tables on the Compatibility view to read this machine's firmware."
       ],
       "non_recoverable": false
     },
     {
       "code": "acpi.unsupported",
       "title": "These firmware tables cannot be read from inside the app",
-      "detail": "Dumping tables from sysfs is a Linux feature; this is «platform».",
+      "detail": "Reading the firmware tables is built into the Linux and Windows builds; this is «platform».",
       "bullets": [
         "Point the ACPI tables folder at a folder of .aml tables exported by Hardware Sniffer."
       ],
@@ -2389,7 +2407,7 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
       "title": "The firmware tables could not be read",
       "detail": "«what the helper reported»",
       "bullets": [
-        "Try again. If it repeats, this machine does not expose a readable DSDT even to root.",
+        "Try again. If it repeats, this machine does not expose a readable DSDT to this app.",
         "Point the ACPI tables folder at a folder of .aml tables exported by Hardware Sniffer instead."
       ],
       "non_recoverable": false
@@ -3315,7 +3333,7 @@ and is contradicted by running code. None is a stylistic choice you can keep.
 | An installer page that shows the build stage checklist | The Installer owns two cards only: `macOS installer` and `USB drive`. Session cards stay in `Build EFI`. |
 | `OpenCore EFI builder.` | The retired 2.0–2.3 tagline. The shipped tagline is `OpenCore, made simple.` under the `BlackDream` wordmark, never replaced. |
 | A `Use example report` button | No sample data ships; the only inputs are drop and browse. |
-| A password field, or an in-app admin prompt | The only authentication is polkit's own window for the Linux ACPI read, outside the app's frame. |
+| A password field, or an in-app admin prompt | The only authentication is polkit's own window for the Linux ACPI read, outside the app's frame; the Windows read needs none. |
 | A second log pane on the `Logs` view | The same widget moves and grows; two logs would mean two buffers to keep in sync. |
 | `⚠️` / `✅` emoji in verdicts | No emoji anywhere, at any size, in any theme. |
 

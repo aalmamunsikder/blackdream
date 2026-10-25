@@ -242,8 +242,8 @@ class Pipeline:
                     detail="No DSDT is loaded and no ACPI table folder was supplied.",
                     remediation=(
                         "Point the report at the ACPI folder inside the exported SysReport.",
-                        "On Linux, press Read ACPI tables (asks for administrator) on the "
-                        "Compatibility view.",
+                        "Or press Read ACPI tables on the Compatibility view to read this "
+                        "machine's firmware.",
                     ),
                 )
             self.acpi.select_acpi_tables(self.utils.normalize_path(acpi_dir))
