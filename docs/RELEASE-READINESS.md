@@ -293,6 +293,19 @@ eight views, and asserts that every label keeps its width and every wrapped line
 row. The frames do not change, because the reference font still measures the rail at exactly
 200 px.
 
+**The second CI run split the sweep: two legs green, Windows still red.** Run `40149997871` put
+ubuntu-22.04 and macos-15-intel through the same test step with the rail floor and the two wrapped
+rows and both passed — the floor and the wrap work where the earlier failures pointed. The Windows
+leg then failed on four labels the two rows never touched: `Generate serials` squeezed into 219 px
+(in the wide-font sweep, 190 in 258), `Presets…` into 103, `Schema preview…` and `Validate again`
+into 199. They live in the config card's action row and the Keys and Validation card headers, three
+ordinary boxes that compress a zero-minimum button before they ask the layout for room. Those three
+rows are wrap rows now, which is what the no-clipped-label rule says a row does when its width will
+not hold it: the config card's actions, the Keys header's search-and-presets group and the
+Validation header's three actions each stay their own width and wrap. `_WrapRow` also honours a
+child's `maximumWidth`, so the search pill keeps the 150–190 px band `QHBoxLayout` used to give it.
+The third run is the one that has to go green on all three legs, or this paragraph grows again.
+
 **200 % scaling found nothing new, and that is the finding.** Qt doubles the device pixels and
 leaves the logical geometry alone, so a card that fits at 1280 logical pixels fits at 2560
 device pixels, and one that clips does both. The one place where the spec promised a mechanism

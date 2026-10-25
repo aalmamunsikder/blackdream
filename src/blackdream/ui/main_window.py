@@ -1408,9 +1408,14 @@ class MainWindow(QMainWindow):
         self.config_reveal.setMinimumHeight(32)
         self.config_reveal.setIconSize(QSize(14, 14))
         self.config_reveal.clicked.connect(self._reveal_config)
+        # The three actions wrap instead of compressing: on a platform whose
+        # font is wider than the one this row was measured with, an ordinary
+        # box drew "Generate serials" as "Gene" at the window's own minimum.
+        config_actions = _WrapRow(spacing=6)
         for button in (self.config_serials, self.config_revert,
                        self.config_reveal):
-            config_row.addWidget(button, 0, Qt.AlignVCenter)
+            config_actions.add(button)
+        config_row.addWidget(config_actions, 0, Qt.AlignVCenter)
         self.configure_card.add(config_row)
 
         self.config_progress = QProgressBar()
@@ -1508,13 +1513,10 @@ class MainWindow(QMainWindow):
         self.config_presets.setToolTip("Insert a ready-made OpenCore patch.")
         self.config_presets.setAccessibleName("Insert a preset")
         self.config_presets.clicked.connect(self._on_config_presets)
-        header_widgets = QWidget()
-        header_layout = QHBoxLayout(header_widgets)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(6)
-        header_layout.addWidget(self.config_search)
-        header_layout.addWidget(self.config_presets)
-        self.keys_card.set_header_widget(header_widgets)
+        header_row = _WrapRow(spacing=6)
+        header_row.add(self.config_search)
+        header_row.add(self.config_presets)
+        self.keys_card.set_header_widget(header_row)
         self.keys_card.add(toolbar)
 
         self.config_tree = QTreeWidget()
@@ -1608,7 +1610,6 @@ class MainWindow(QMainWindow):
         self.config_validate_again.setMinimumHeight(28)
         self.config_validate_again.setIconSize(QSize(13, 13))
         self.config_validate_again.clicked.connect(self._on_config_validate)
-        self.validation_card.set_header_widget(self.config_validate_again)
         self.config_schema_preview = QPushButton("Schema preview\u2026")
         self.config_schema_preview.setObjectName("outline")
         self.config_schema_preview.setMinimumHeight(28)
@@ -1617,7 +1618,6 @@ class MainWindow(QMainWindow):
             "migration")
         self.config_schema_preview.clicked.connect(
             self._on_config_schema_preview)
-        self.validation_card.add_header_widget(self.config_schema_preview)
         self.config_dependencies = QPushButton("Dependencies\u2026")
         self.config_dependencies.setObjectName("outline")
         self.config_dependencies.setMinimumHeight(28)
@@ -1626,7 +1626,15 @@ class MainWindow(QMainWindow):
             "Check the kext, driver and quirk relationships this file already "
             "claims")
         self.config_dependencies.clicked.connect(self._on_config_dependencies)
-        self.validation_card.add_header_widget(self.config_dependencies)
+        # The header's three actions wrap rather than compressing, the same
+        # promise the page's own action row makes: at the window's minimum a
+        # wider font squeezed "Schema preview…" into 199 px and "Validate
+        # again" into 199, both missing their last letters.
+        validation_actions = _WrapRow(spacing=6)
+        validation_actions.add(self.config_schema_preview)
+        validation_actions.add(self.config_dependencies)
+        validation_actions.add(self.config_validate_again)
+        self.validation_card.set_header_widget(validation_actions)
         validation_row = QHBoxLayout()
         validation_row.setSpacing(8)
         self.config_validation_icon = QLabel()
@@ -5121,11 +5129,14 @@ class _WrapRow(QWidget):
 
         ``setMinimumHeight(36)`` on a button whose style hint is 31 px means the
         geometry call below is clamped by Qt -- and a row that placed the next line
-        at 31 + spacing drew it one pixel into the button above.
+        at 31 + spacing drew it one pixel into the button above. The same clamp
+        keeps the search pill inside the 150-190 px band its maximum width gives
+        it: the hint alone asks for what a stretched field would take.
         """
         hint = child.sizeHint()
         floor = child.minimumSizeHint()
-        return QSize(max(hint.width(), child.minimumWidth(), floor.width()),
+        return QSize(min(max(hint.width(), child.minimumWidth(), floor.width()),
+                         child.maximumWidth()),
                      max(hint.height(), child.minimumHeight(), floor.height()))
 
     def _lines(self, width: int) -> list[list[QWidget]]:

@@ -274,6 +274,11 @@ def test_a_wider_platform_font_wraps_instead_of_losing_letters(make_window, qapp
                                                hint.width())
 
         wrapped = 0
+        # Findings are collected rather than asserted on sight, so one run
+        # names every squeezed label on a platform instead of the first one:
+        # the first version of this sweep died at `Generate serials` and never
+        # reached the three views after it.
+        offenders = []
         for name in _VIEWS:
             window._show_view(name)
             for _ in range(4):
@@ -281,35 +286,44 @@ def test_a_wider_platform_font_wraps_instead_of_losing_letters(make_window, qapp
             for button in window.findChildren(QPushButton):
                 if not button.isVisible() or not button.text().strip():
                     continue
-                assert button.width() >= button.sizeHint().width(), \
-                    "{}: {!r} squeezed into {} px".format(
-                        name, button.text(), button.width())
+                if button.width() < button.sizeHint().width():
+                    offenders.append("{}: {!r} squeezed into {} px".format(
+                        name, button.text(), button.width()))
             for row in window.findChildren(ui._WrapRow):
                 if not row.isVisible():
                     continue
-                assert row.height() == row.heightForWidth(row.width()), \
-                    "{}: row is {} px tall but its lines need {}".format(
-                        name, row.height(), row.heightForWidth(row.width()))
+                if row.height() != row.heightForWidth(row.width()):
+                    offenders.append("{}: row is {} px tall but its lines "
+                                     "need {}".format(name, row.height(),
+                                                      row.heightForWidth(
+                                                          row.width())))
                 shown = [child for child in row._children if child.isVisible()]
                 if len(row._lines(row.width())) > 1:
                     wrapped += 1
                 for index, child in enumerate(shown):
                     geometry = child.geometry()
-                    assert geometry.width() >= child.sizeHint().width(), \
-                        "{}: {!r} is {} px in a {} px geometry".format(
-                            name, child.text() if hasattr(child, "text")
-                            else child.objectName(), child.sizeHint().width(),
-                            geometry.width())
-                    assert geometry.right() <= row.width(), \
-                        "{}: {!r} runs past the row".format(
-                            name, geometry)
-                    assert geometry.bottom() <= row.height(), \
-                        "{}: {!r} is drawn below the row".format(
-                            name, geometry)
+                    label = (child.text() if hasattr(child, "text")
+                             else child.objectName())
+                    if geometry.width() < child.sizeHint().width():
+                        offenders.append("{}: {!r} is {} px in a {} px "
+                                         "geometry".format(
+                                             name, label,
+                                             child.sizeHint().width(),
+                                             geometry.width()))
+                    if geometry.right() > row.width():
+                        offenders.append("{}: {!r} runs past the row".format(
+                            name, label))
+                    if geometry.bottom() > row.height():
+                        offenders.append("{}: {!r} is drawn below the row"
+                                         .format(name, label))
                     for other in shown[index + 1:]:
-                        assert not geometry.intersects(other.geometry()), \
-                            "{}: {!r} overlaps {!r}".format(
-                                name, geometry, other.geometry())
+                        if geometry.intersects(other.geometry()):
+                            offenders.append("{}: {!r} overlaps {!r}".format(
+                                name, label,
+                                other.text() if hasattr(other, "text")
+                                else other.objectName()))
+        assert offenders == [], "a wider font squeezed {} of them: {}".format(
+            len(offenders), "; ".join(offenders))
         assert wrapped > 0, "no row wrapped, so the font was not wider"
     finally:
         qapp.setFont(base)

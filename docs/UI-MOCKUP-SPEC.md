@@ -1129,7 +1129,9 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
   en-dash, because the value is also printed to logs.
 - No control is ever narrower than its own label. The window's minimum width is fixed, so when the
   platform font is wider than the reference font the rail grows past its 200 px floor and an action
-  row takes a second line instead of squeezing a button. A mockup should never draw a clipped label.
+  row takes a second line instead of squeezing a button. The rows that wrap in the running app are
+  the Configure page's header action slot, the config card's action row, the Keys toolbar's two rows
+  and the Keys and Validation card headers. A mockup should never draw a clipped label.
 - The theme picker, the diagnostics button and all six sidebar items are keyboard-reachable. The
   theme picker changes the theme immediately; it does not need a Save button, and no utility view
   has one.
@@ -3236,7 +3238,7 @@ and is contradicted by running code. None is a stylistic choice you can keep.
 | Wallpaper behind the native title bar, or outside the window | The wallpaper is clipped to the client area. The native title bar and the menu strip sit above it and are never painted by the app's backdrop. |
 | A search pill on `Installer`, `Build EFI`, `Logs`, `Configure EFI`, `Settings`, `Help` or `Donate` | The search filters the device table, which exists only on `Compatibility`; the pill is hidden everywhere else. |
 | Icons beside sidebar items forbidden (1.1 rule) | Icons are required: `download` / `build` / `sliders` in the three workflow sections, plus `gear` / `help` / `heart` for Settings, Help and Donate. They come from the inline SVG set, never a third-party library. |
-| A sidebar pinned to exactly 200 px on every platform, or a nav label clipped to fit it | The rail is 200 px at the reference font and never narrower; a wider platform font grows it by the pixels its longest label needs. The Configure page's action slot and Keys toolbar wrap onto a second line rather than squeezing a button. |
+| A sidebar pinned to exactly 200 px on every platform, or a nav label clipped to fit it | The rail is 200 px at the reference font and never narrower; a wider platform font grows it by the pixels its longest label needs. An action row that its width will not hold takes a second line rather than squeezing a button — in the running app that is the page's header action slot, the config card's actions and the Keys and Validation card headers. |
 | A top-level `Compatibility`, `Build` or `Logs` sidebar item | 3.0 has exactly three workflow sections: `Installer`, `Build EFI`, `Configure EFI`. Compatibility, Build and Logs are segment tabs inside `Build EFI`. |
 | An `Erase drive` / `Format` checkbox, a partition picker, or an installer that mounts a disk | The Installer copies files into an already-mounted FAT32 volume and replaces only `EFI` and `com.apple.recovery.boot`. It never formats, mounts or writes to a block device. |
 | A USB combo that already has the first drive selected | No drive is selected until the user picks one. The placeholder says `Choose a USB drive`, and the write confirmation names the target. |
