@@ -258,7 +258,7 @@ widget instances* — nothing is duplicated:
 | View | Cards, in order |
 |---|---|
 | `Installer` | `macOS installer` (release picker and image download) · `USB drive` (target, identity and the guarded write). Nothing else shares this page: the installer never mounts the EFI session cards |
-| `Compatibility` | Two columns (43 : 57) above a full-width log. Left, top → bottom: the **setup card** (three path rows and the two capability links, untitled) · `macOS version` · the **actions card** (2 × 2 buttons, untitled). Right: `Detected devices` (grows) · `Build progress`; while details are open, `Device details` replaces `Build progress` in that slot. Bottom: `Engine log` across both columns |
+| `Compatibility` | Two columns (40 : 60) above a full-width log. Left, top → bottom: the **setup card** (three path rows and the two capability links, untitled) · `macOS version` · the **actions card** (2 × 2 buttons, untitled). Right: `Detected devices` (grows) · `Build progress`; while details are open, `Device details` replaces `Build progress` in that slot. Bottom: `Engine log` across both columns |
 | `Build EFI` | Top row: the actions card (natural height) · `Build progress` (grows). Bottom: `Engine log` filling the rest. The top row stacks below 900 px |
 | `Logs` | `Engine log` only, taking the full content height; no scroll area |
 | `Configure EFI` | Top: `config.plist`, a compact file card across the content width. Then a three-column row: `Sections` (206 px fixed rail) · `Keys` (grows; tree, add/remove/move toolbar and key search) · `Selected entry` (268 px fixed inspector). Bottom: `Validation` across the content width, its header carrying three outline buttons — `Schema preview…` · `Dependencies…` · `Validate again`. The page header's action slot carries the validation chip · schema chip · `Open config…` · `Validate` · `Save`. No session cards |
@@ -297,9 +297,12 @@ widget instances* — nothing is duplicated:
   pack their content to the top. A card with no growing child is padded with a trailing stretch so
   its content never floats mid-card. Cards scroll with the page when the window is short.
 - **The layout bends before it clips.** The two dashboard columns stack below an 800 px split
-  viewport; the `Build EFI` top row stacks below 900 px. The device table gives width to the support
-  column first, shrinking it from 266 px toward 110 px, then lets the status word size itself; the
-  device column never falls below 165 px and the table never scrolls sideways. The version combo
+  viewport; the `Build EFI` top row stacks below 900 px. The 40 : 60 split exists because at the
+  1160 px floor the four device-table headers only fit when the devices card keeps 60 % of the row;
+  the table then gives width to the support column first, shrinking it from 266 px until the row
+  fits and never below 90 px, after the status word and the device column's 165 px floor have taken
+  theirs. The device column never falls below 165 px and the table never scrolls sideways. The
+  version combo
   sizes to its content rather than its longest entry, so a long macOS name does not widen the card
   on a theme change. The floor is 1160 × 700; below that the window refuses to shrink, and a short
   window scrolls the page.
@@ -599,7 +602,9 @@ disabled while any job runs.
 
 Four headers, always: `Device` · `Class` · `macOS support` · `Status`. The first column stretches
 with a 165 px floor; `Class` is fixed at 72 px; `macOS support` shrinks first, from 266 px down to
-110 px; `Status` is at least 100 px and grows to its widest rendered word plus padding. Rows are
+a 90 px floor — at the 1160 px window floor the 40 : 60 split leaves it about 117 px, just enough
+for its own header; `Status` is at least 100 px and grows to its
+widest rendered word plus padding. Rows are
 29 px, single-selection, never sortable, and not striped. A `Limited support` row takes
 `rowWarnBg` and a `Not supported` row `rowFailBg`, across all four columns. The table scrolls its
 own rows with a 150 px minimum height; the vertical scrollbar's width is part of the column
@@ -1120,12 +1125,13 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
 - Never colour alone: status cells pair an icon with a word, stage rows pair an icon with a state
   name, field states pair an icon with a tooltip.
 - The Devices table gives way from the right: the `macOS support` column shrinks (266 px down to
-  its 110 px floor) before the Device column loses anything, so a name keeps every pixel the card
-  can spare. A name longer than that column is elided - the table is 640 px wide at every window
-  width, and no fixed column can promise otherwise against a string a report supplied - and the
-  whole name and the whole release range are in the row tooltip. A 200 % UI scale changes nothing
-  here: Qt doubles the device pixels and leaves the logical geometry, so what fits at 100 % fits
-  at 200 %.
+  its 90 px floor) before the Device column loses anything, so a name keeps every pixel the card
+  can spare. The 40 : 60 dashboard split is part of that promise: at the window minimum the table
+  keeps 60 % of the row, which is what lets the support header print in full. A name longer than the
+  column is elided - the table never scrolls sideways, and no fixed column can promise otherwise
+  against a string a report supplied - and the whole name and the whole release range are in the
+  row tooltip. A 200 % UI scale changes nothing here: Qt doubles the device pixels and leaves the
+  logical geometry, so what fits at 100 % fits at 200 %.
 - Engine text is untrusted content: device names come from a report written by another program, and
   remote filenames come from GitHub. Mockups should show long, awkward names
   (`Intel Cannon Lake-HDMI`, `Realtek RTL8821CE-CU4AA_921E PCIe Network Card`) rather than tidy ones.
@@ -1282,8 +1288,10 @@ result. Nothing on this page leaves the window, mounts a disk or writes the file
   tooltip and are disabled when the matching stack is empty. `Changes…` reads
   `Changes («n»)…` while the document differs from the file that was opened, and opens
   `Changes since the file was opened`: a read-only tree with headers `Change` · `Key` · `Before` ·
-  `After`, plus `Copy` and `Save as text…`. With no edits it shows one disabled `None` row reading
-  `No edits since the file was opened.` The history keeps the 100 newest snapshots, a save makes
+  `After`, plus `Copy` and `Save as text…`. With no edits it shows one disabled row, spanning the
+  table, reading `No edits since the file was opened.` Every cell carries its full text as a
+  tooltip, because a long before/after value is elided in place. The history keeps the 100 newest
+  snapshots, a save makes
   the saved bytes the new baseline, and undo/redo never re-reads or writes the file. Then the tree,
   headers `Key` · `Value` · `Type`, three columns (Key
   and Value stretch, Type fixed at 88 px), 16 px indentation, inline editing and a checkbox for
@@ -1422,8 +1430,9 @@ No funding URL exists yet; a mockup that invents one is wrong.
 920 × 500: a `rowTitle` heading `«n» device«s» across «n» release«s»`, one wrapped `rowBody` line that
 leads with *Each cell is the same status the device table would show for that release.* and ends
 with `release_matrix.BOUNDARY`, then a flat `configTree` table — `Device` fixed at 200 px, `Class`
-fixed at 76 px, one 104 px column per selectable release labelled with the release name; the grid
-scrolls sideways per pixel rather than eliding a device name. Cells carry
+fixed at 76 px, one column per selectable release at `max(104, name + 24)` px and labelled with the
+release name, which is also the header's tooltip; the grid scrolls sideways per pixel rather than
+eliding a device name. Cells carry
 `verdicts.target_status`'s label in the same `_STATUS_TONE` colour the `Status` column of the device
 table uses — a 15 %-alpha background wash alone cannot carry a verdict — and only `unsupported`
 (`rowFailBg`) and `limited` (`rowWarnBg`) are tinted; `supported` and `unknown` stay on the row
@@ -1880,7 +1889,7 @@ it. `«…»` marks a value the code fills in at runtime — invent a plausible 
   "table_geometry": {
     "class_width": 72,
     "device_min_width": 165,
-    "support_min_width": 110,
+    "support_min_width": 90,
     "support_max_width": 266,
     "status_min_width": 100,
     "row_height": 29,

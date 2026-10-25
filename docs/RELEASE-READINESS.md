@@ -330,9 +330,10 @@ field as the one control that yields width, and says that the button beside it w
 leaves the logical geometry alone, so a card that fits at 1280 logical pixels fits at 2560
 device pixels, and one that clips does both. The one place where the spec promised a mechanism
 the code does not have was §14's Devices-table rule — "wrapping the `macOS support` column, never
-by truncating a device name mid-token". Measured: the card is 640 px wide at every window width,
-the table gives way from the right (the support column shrinks from 266 px to its 110 px floor
-before the name column loses anything, which keeps at least 165 px), and a name longer than that
+by truncating a device name mid-token". Measured: the table gives way from the right (the support
+column shrinks from 266 px to its floor before the name column loses anything, which keeps at least
+165 px; the dashboard's 40 : 60 split is what keeps the support header whole at the 1160 px floor),
+and a name longer than that
 elides with the whole string in the row tooltip. Wrapping was not implemented: a report can name
 a device anything at all — `test_a_device_name_is_rendered_as_text_not_markup` feeds it
 `<b>Bold</b> CPU` — so no fixed-width column can promise against truncation, and the row height

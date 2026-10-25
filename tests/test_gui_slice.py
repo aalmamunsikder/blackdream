@@ -310,26 +310,42 @@ def test_a_device_name_is_rendered_as_text_not_markup(window, tmp_path):
 def test_the_release_range_gives_way_before_the_device_name(window, tmp_path, qapp):
     """Spec 14's table rule, measured instead of hoped for.
 
-    The card is 640 px wide at every window width, so the four columns have to share
-    a fixed budget: this pins that the support column is the one that shrinks, that
-    the name column never drops below its floor, and that whatever the table cannot
-    show is still in the row tooltip -- a report can name a device anything at all,
-    including the markup the test above feeds it, so elision is unavoidable and the
-    tooltip is what makes it survivable.
+    The four columns share a fixed budget: this pins that the support column is
+    the one that shrinks, that the name column never drops below its floor even
+    at the 1160 px window floor, and that whatever the table cannot show is still
+    in the row tooltip -- a report can name a device anything at all, including
+    the markup the test above feeds it, so elision is unavoidable and the tooltip
+    is what makes it survivable. The window is shown because a hidden QTreeWidget
+    keeps a stale viewport and would let the floors pass untested.
     """
     _load(window, tmp_path, "table", fixtures.alder_lake_desktop())
     tree = window.verdict_tree
+    window.show()
 
-    for width in (window.minimumSize().width(), 1280, 1900):
-        window.resize(width, 820)
-        for _ in range(6):
-            qapp.processEvents()
-        assert tree.columnWidth(0) >= tree._DEVICE_MIN, \
-            "the name column was squeezed at {} px".format(width)
-        assert tree._SUPPORT_MIN <= tree.columnWidth(2) <= tree._SUPPORT_MAX
-        for item in _rows(window):
-            assert item.toolTip(0) == item.text(0)
-            assert item.toolTip(2) == item.text(2)
+    try:
+        for width in (window.minimumSize().width(), 1280, 1900):
+            window.resize(width, 820)
+            for _ in range(6):
+                qapp.processEvents()
+            assert tree.columnWidth(0) >= tree._DEVICE_MIN, \
+                "the name column was squeezed at {} px".format(width)
+            assert tree._SUPPORT_FLOOR <= tree.columnWidth(2) <= tree._SUPPORT_MAX
+            metrics = tree.fontMetrics()
+            # The header carries 8 px of inset on each side. A support column
+            # narrower than its own header prints "macOS suppo" and names nothing,
+            # which is what the 40 : 60 split exists to prevent at the floor.
+            assert metrics.horizontalAdvance(tree.headerItem().text(2)) + 16 \
+                <= tree.columnWidth(2), \
+                "the support header elides at {} px".format(width)
+            for item in _rows(window):
+                assert item.toolTip(0) == item.text(0)
+                assert item.toolTip(2) == item.text(2)
+                # The standard delegate had 4 px of item padding at this size.
+                if width == window.minimumSize().width():
+                    assert metrics.horizontalAdvance(item.text(0)) \
+                        <= tree.columnWidth(0) - 4, item.text(0)
+    finally:
+        window.close()
 
 
 def test_cancellation_stops_a_running_job_and_releases_the_buttons(window, qapp):

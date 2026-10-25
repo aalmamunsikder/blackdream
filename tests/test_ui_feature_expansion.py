@@ -157,6 +157,14 @@ def test_the_release_matrix_matches_the_table_for_the_selected_release(
     assert dialog.tree.topLevelItemCount() == len(window._verdicts)
     first = dialog.tree.topLevelItem(0)
     assert first.text(2 + selected) == matrix.status(0, selected).label
+    # A release header is the column's only name. At the old fixed 104 px
+    # "macOS High Sierra 10.13" painted as "macOS High Si", so every header must
+    # fit its column and carry the full name as a tooltip.
+    metrics = dialog.tree.fontMetrics()
+    for index in range(2, dialog.tree.columnCount()):
+        label = dialog.tree.headerItem().text(index)
+        assert metrics.horizontalAdvance(label) <= dialog.tree.columnWidth(index) - 8
+        assert dialog.tree.headerItem().toolTip(index) == label
     tones = [QColor(window._palette[ui._STATUS_TONE.get(status.key, "unknown")])
              for status in matrix.rows[0].cells]
     assert [QColor(first.data(2 + index, Qt.ForegroundRole))

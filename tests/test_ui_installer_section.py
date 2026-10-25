@@ -1510,7 +1510,19 @@ def test_the_changes_dialog_lists_each_edit_with_both_values(
             "-1", "0") in [tuple(row) for row in rows]
     assert ("Changed", "Booter > Quirks > AvoidRuntimeDefrag",
             "true", "false") in [tuple(row) for row in rows]
+    for index in range(dialog.tree.topLevelItemCount()):
+        item = dialog.tree.topLevelItem(index)
+        assert item.toolTip(1) == item.text(1)
+        assert item.toolTip(2) == item.text(2)
+        assert item.toolTip(3) == item.text(3)
+
+    empty = ui._ChangesDialog(
+        window, [], window._config_doc.path, ui.LIGHT)
+    placeholder = empty.tree.topLevelItem(0)
+    assert placeholder.text(0) == "No edits since the file was opened."
+    assert placeholder.isFirstColumnSpanned()
     dialog.deleteLater()
+    empty.deleteLater()
 
 
 def test_selecting_a_validator_issue_jumps_to_the_key_it_names(

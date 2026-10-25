@@ -1717,7 +1717,7 @@ class MainWindow(QMainWindow):
         self._compat_progress.setSpacing(0)
         right.addLayout(self._compat_progress)
 
-        columns = _Split(left_host, right_host, spacing=16, stretch=(43, 57),
+        columns = _Split(left_host, right_host, spacing=16, stretch=(40, 60),
                          stack_below=800)
         layout.addWidget(columns, 1)
 
@@ -5879,13 +5879,18 @@ class _ChangesDialog(QDialog):
         self.tree.setColumnWidth(0, 92)
         for change in self._changes:
             before, after = change.pair
-            self.tree.addTopLevelItem(QTreeWidgetItem([
-                change.kind.capitalize(), change.label, before, after]))
+            item = QTreeWidgetItem([
+                change.kind.capitalize(), change.label, before, after])
+            item.setToolTip(1, change.label)
+            item.setToolTip(2, before)
+            item.setToolTip(3, after)
+            self.tree.addTopLevelItem(item)
         if not self._changes:
             empty = QTreeWidgetItem([
-                "None", "No edits since the file was opened.", "", ""])
+                "No edits since the file was opened.", "", "", ""])
             empty.setFlags(Qt.NoItemFlags)
             self.tree.addTopLevelItem(empty)
+            empty.setFirstColumnSpanned(True)
         layout.addWidget(self.tree, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         copy = buttons.addButton("Copy", QDialogButtonBox.ActionRole)
@@ -6343,9 +6348,17 @@ class _ReleaseMatrixDialog(QDialog):
         self.tree.setColumnWidth(0, 200)
         header.setSectionResizeMode(1, QHeaderView.Fixed)
         self.tree.setColumnWidth(1, 76)
-        for index in range(2, self.tree.columnCount()):
+        # A 104 px column cannot hold a release name: "macOS High Sierra 10.13"
+        # needs 151 px, and a header elided to "macOS High Sie" names nothing.
+        # The grid already scrolls sideways, so the columns widen to their names.
+        release_width = max(104, max(
+            (self.tree.fontMetrics().horizontalAdvance(column.option.name)
+             for column in matrix.columns), default=0) + 24)
+        for offset, column in enumerate(matrix.columns):
+            index = offset + 2
             header.setSectionResizeMode(index, QHeaderView.Fixed)
-            self.tree.setColumnWidth(index, 104)
+            self.tree.setColumnWidth(index, release_width)
+            self.tree.headerItem().setToolTip(index, column.option.name)
         for row in matrix.rows:
             item = QTreeWidgetItem([
                 row.verdict.name, row.verdict.class_label or row.verdict.section])
@@ -7047,7 +7060,12 @@ class _VerdictTree(QTreeWidget):
 
     _CLASS_WIDTH = 72
     _STATUS_MIN = 100
-    _SUPPORT_MIN = 110
+    #: A guard for a viewport narrower than the 1160 px window floor. At that
+    #: floor the 40 : 60 split leaves the column about 117 px -- enough for its
+    #: own header -- while the device column keeps its 165 px. The support text
+    #: is elided, tooltipped and repeated in the details pane, so it is still
+    #: the column that gives way first.
+    _SUPPORT_FLOOR = 90
     _SUPPORT_MAX = 266
     # The device name identifies the row; the release range already repeats in
     # the details pane, so it is the column that elides first.
@@ -7076,7 +7094,7 @@ class _VerdictTree(QTreeWidget):
     def _fit_columns(self, *_args) -> None:
         available = self.viewport().width()
         support = min(self._SUPPORT_MAX,
-                      max(self._SUPPORT_MIN,
+                      max(self._SUPPORT_FLOOR,
                           available - self._CLASS_WIDTH - self._status_width
                           - self._DEVICE_MIN))
         if self.columnWidth(2) != support:
