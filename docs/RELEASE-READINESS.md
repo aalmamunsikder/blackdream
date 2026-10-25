@@ -1,9 +1,9 @@
-# Release readiness record — Stage A, through 0.9.0-beta.5
+# Release readiness record — Stage A, through 0.9.0-beta.6
 
 Recorded 2026-10-24 against `BlackDream_Beta_Release_Recommendation.md` (2026-10-23),
 which was written for specification v3.3 and suggested the identifier `0.9.0-beta.1`.
-The record began with v3.6 / `0.9.0-beta.3`; the distributed build is v3.7 /
-`0.9.0-beta.5`, so the recommendation's *screen numbers and version label are stale*;
+The record began with v3.6 / `0.9.0-beta.3`; the distributed build is v3.9 /
+`0.9.0-beta.6`, so the recommendation's *screen numbers and version label are stale*;
 its gates are not, and they are judged here one by one.
 
 Stage A is the internal release-candidate stage: prove the critical workflows before
@@ -13,7 +13,8 @@ check every claim against the tree.
 Stage A passed and `v0.9.0-beta.3` was published on 2026-10-24; the defects the published
 bytes exposed shipped fixed as `v0.9.0-beta.4` on 2026-10-25. Section 7 records what each
 published build showed afterwards, and section 10 records beta 4 in full. Beta 5 is a
-UI-only follow-up on the same engine and spec; section 11 records it.
+UI-only follow-up on the same engine and spec; section 11 records it. Beta 6 adds the two
+third-party graphics paths; section 12 records it.
 
 Statuses used below:
 
@@ -450,7 +451,7 @@ The roadmap's Phase 4 exit gate now has a build to test against: a tester with t
 release can open `Configure EFI ▸ Dependencies…`, classify a finding, and press
 `Dismiss`, which is the evidence §9 says is still missing.
 
-## 11. Beta 5 is published, and it is the only release
+## 11. Beta 5 was published, and was then the only release
 
 `v0.9.0-beta.5` was tagged on `0fb3730`, and run `40159852208` built all three legs,
 passed their audits, and published the prerelease. It carries the editor tick mark, the
@@ -481,6 +482,38 @@ of 923 collected — the published-name contract that skips without those files 
 and passes against the real asset names.
 
 The three earlier prereleases were deleted with their tags at the owner's instruction, so
-`v0.9.0-beta.5` is the only release on the repository. Beta 4's notes and assets remain
-in the release history of this document and of `RELEASE-NOTES.md`; the GitHub release
-itself is gone, which means its downloads are too.
+`v0.9.0-beta.5` was the only release on the repository at that point. Beta 4's notes and
+assets remain in the release history of this document and of `RELEASE-NOTES.md`; the
+GitHub release itself is gone, which means its downloads are too. Beta 6 later superseded
+it, and beta 5's release and tag were deleted the same way; section 12 records that.
+
+## 12. Beta 6 is published, and it is the only release
+
+`v0.9.0-beta.6` was tagged on `09478bc`, and run `40186833039` built all three legs,
+passed their audits, and published the prerelease. It adds the two third-party graphics
+paths: WhateverXe for Xe-LP Intel graphics and the NullMoth NVIDIA driver for
+Turing-and-later cards. Both grade their hardware as limited support, write the
+project's OpenCore prerequisites into the generated config, and hand the target-side
+driver off in a text file beside the EFI rather than bundling or installing it.
+
+The paths were verified offline rather than on their hardware: a synthetic Tiger Lake
+report and a synthetic RTX 5060 report each produced a complete EFI, and OpenCore 1.0.8
+`ocvalidate` reported `No issues found` on both. The first NullMoth build exposed a real
+defect — the sample config already deletes `boot-args` and the generator appended it
+again, which `ocvalidate` refuses — fixed before release, with a test that builds the
+real config and counts the key. No Xe-LP or Turing/RTX machine has booted either EFI,
+and neither driver has been installed.
+
+Verification of the published bytes: all eight assets were downloaded and
+`sha256sum -c SHA256SUMS.txt` printed `OK` for all seven archives; the unpacked Linux
+bundle reports `blackdream 0.9.0-beta.6` and `--smoke` starts it on the offscreen
+platform; the `.deb` reports `blackdream 0.9.0b6` on `amd64` with `libc6 (>= 2.35)`; the
+wheel names `blackdream-0.9.0b6` and its `blackdream/core/pipeline.py` carries both
+hand-off writers. With the published assets in `dist/release` the suite is 996 passed,
+1 skipped of 997 collected — the published-name contract runs against the real asset
+names.
+
+The beta 5 release and tag were deleted at the owner's instruction, so `v0.9.0-beta.6`
+is the only release on the repository. Beta 5's notes and assets remain in the release
+history of this document and of `RELEASE-NOTES.md`; the GitHub release itself is gone,
+which means its downloads are too.
