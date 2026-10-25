@@ -7120,21 +7120,21 @@ class _VerdictTree(QTreeWidget):
     Fixed columns do not shrink; when the window reached its minimum width the
     last column fell outside the viewport and every badge was cut in half. The
     support column gives way first, and the detail pane still carries the full
-    release range.
+    release range -- but it never gives way past its own header. The table asks
+    the card for the width those four floors need, so a platform font wider than
+    the reference one cannot squeeze a header: the dashboard stacks instead.
     """
 
     _CLASS_WIDTH = 72
     _STATUS_MIN = 100
-    #: A guard for a viewport narrower than the 1160 px window floor. At that
-    #: floor the 40 : 60 split leaves the column about 117 px -- enough for its
-    #: own header -- while the device column keeps its 165 px. The support text
-    #: is elided, tooltipped and repeated in the details pane, so it is still
-    #: the column that gives way first.
+    #: A guard only: ``_support_floor`` measures the header in the font on screen.
     _SUPPORT_FLOOR = 90
     _SUPPORT_MAX = 266
     # The device name identifies the row; the release range already repeats in
     # the details pane, so it is the column that elides first.
     _DEVICE_MIN = 165
+    #: The header's QSS padding, 8 px each side.
+    _HEADER_INSET = 16
 
     def __init__(self) -> None:
         super().__init__()
@@ -7143,6 +7143,7 @@ class _VerdictTree(QTreeWidget):
         # The vertical scrollbar takes width from the viewport; fitting only on
         # resize left the Status column tucked under it.
         self.verticalScrollBar().rangeChanged.connect(self._fit_columns)
+        self._reserve_width()
 
     def fit_status(self, widest_text: int) -> None:
         # "Not supported" is wider than the cells the table first shipped with;
@@ -7150,16 +7151,44 @@ class _VerdictTree(QTreeWidget):
         width = max(self._STATUS_MIN, widest_text + 40)
         if width != self._status_width:
             self._status_width = width
+            self._reserve_width()
             self._fit_columns()
+
+    def _support_floor(self) -> int:
+        """The narrowest column that still prints "macOS support" in full.
+
+        The reference font leaves the column 142 px at the window floor, so a
+        fixed 90 px floor passed locally. DejaVu Sans is 6 % wider and left it
+        107 px against a 116 px header, which drew as "macOS suppor" on Linux.
+        """
+        return max(self._SUPPORT_FLOOR,
+                   self.fontMetrics().horizontalAdvance(self.headerItem().text(2))
+                   + self._HEADER_INSET)
+
+    def _reserve_width(self) -> None:
+        """Refuse to be narrower than the four columns' floors need together."""
+        needed = (self._DEVICE_MIN + self._CLASS_WIDTH + self._support_floor()
+                  + self._status_width
+                  + self.verticalScrollBar().sizeHint().width())
+        if self.minimumWidth() != needed:
+            self.setMinimumWidth(needed)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._fit_columns()
 
+    def changeEvent(self, event) -> None:
+        # A style and a font arrive after the first show; both move the header's
+        # width, so the floor is measured again rather than kept from startup.
+        super().changeEvent(event)
+        if event.type() in (QEvent.StyleChange, QEvent.FontChange):
+            self._reserve_width()
+            self._fit_columns()
+
     def _fit_columns(self, *_args) -> None:
         available = self.viewport().width()
         support = min(self._SUPPORT_MAX,
-                      max(self._SUPPORT_FLOOR,
+                      max(self._support_floor(),
                           available - self._CLASS_WIDTH - self._status_width
                           - self._DEVICE_MIN))
         if self.columnWidth(2) != support:

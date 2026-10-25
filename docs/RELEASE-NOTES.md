@@ -21,12 +21,15 @@ not in this binary.
   its native menu-style popup. The Add-key dialog's plain combos get the same shape.
 * **No header or cell is cut at the window floor.** At 1160 px the devices table painted
   `macOS suppo`, the release grid cut `macOS High Si`, and the changes dialog elided its
-  long values and its own empty-state sentence. The dashboard now splits its row 40 : 60,
-  release columns size to their names with the full name as a header tooltip, and every
-  changes cell carries its text as a tooltip; with no edits the dialog shows one disabled
-  row spanning the table. The geometry audit behind these findings now measures spanned
-  rows at their true width and reports nothing across eight views, both themes, three
-  window sizes and twelve dialogs.
+  long values and its own empty-state sentence. The support column now keeps its own
+  header's width in the font on screen — 110 px in the reference font, 116 px in the wider
+  one CI runs — and the devices card claims the pixels it needs instead of taking what the
+  split leaves; when even that will not fit beside the 165 px name column, the two
+  dashboard columns stack rather than elide a header. Release columns size to their names
+  with the full name as a header tooltip, and every changes cell carries its text as a
+  tooltip; with no edits the dialog shows one disabled row spanning the table. The geometry
+  audit behind these findings now measures spanned rows at their true width and reports
+  nothing across eight views, both themes, three window sizes and twelve dialogs.
 * Nothing in the engine, the generated config, the installer or the file-writing rules
   changed in this build.
 

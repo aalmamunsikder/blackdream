@@ -297,15 +297,17 @@ widget instances* — nothing is duplicated:
   pack their content to the top. A card with no growing child is padded with a trailing stretch so
   its content never floats mid-card. Cards scroll with the page when the window is short.
 - **The layout bends before it clips.** The two dashboard columns stack below an 800 px split
-  viewport; the `Build EFI` top row stacks below 900 px. The 40 : 60 split exists because at the
-  1160 px floor the four device-table headers only fit when the devices card keeps 60 % of the row;
-  the table then gives width to the support column first, shrinking it from 266 px until the row
-  fits and never below 90 px, after the status word and the device column's 165 px floor have taken
-  theirs. The device column never falls below 165 px and the table never scrolls sideways. The
-  version combo
-  sizes to its content rather than its longest entry, so a long macOS name does not widen the card
-  on a theme change. The floor is 1160 × 700; below that the window refuses to shrink, and a short
-  window scrolls the page.
+  viewport — and above it when the panes' own floors no longer fit, which a wider platform font can
+  bring up to the window floor; the `Build EFI` top row stacks below 900 px. The 40 : 60 split
+  exists because at the 1160 px floor the four device-table headers only fit when the devices card
+  keeps most of the row. The table gives width to the support column first, shrinking it from
+  266 px until the row fits, but never below its own header plus the 8 px inset each side: 90 px is
+  a guard, and the measured floor is what a font 6 % wider than the reference one still prints in
+  full. The device column never falls below 165 px and the table never scrolls sideways; when the
+  row cannot hold the support header at all, the card claims the width it needs and the two columns
+  stack rather than elide a header. The version combo sizes to its content rather than its longest
+  entry, so a long macOS name does not widen the card on a theme change. The floor is 1160 × 700;
+  below that the window refuses to shrink, and a short window scrolls the page.
 - **No numbered cards.** The ① ② ③ badges never shipped; no card or button carries a number, and
   nothing is a wizard step.
 - **During a job the window follows the work:** the build jobs show `Build EFI`, an installer job
@@ -602,9 +604,10 @@ disabled while any job runs.
 
 Four headers, always: `Device` · `Class` · `macOS support` · `Status`. The first column stretches
 with a 165 px floor; `Class` is fixed at 72 px; `macOS support` shrinks first, from 266 px down to
-a 90 px floor — at the 1160 px window floor the 40 : 60 split leaves it about 117 px, just enough
-for its own header; `Status` is at least 100 px and grows to its
-widest rendered word plus padding. Rows are
+its own header plus the 8 px inset each side — 110 px in the reference font, where the 1160 px
+window floor leaves it about 142 px; a wider platform font raises that floor and the dashboard
+stacks before the header elides, with 90 px as the guard it never goes below. `Status` is at least
+100 px and grows to its widest rendered word plus padding. Rows are
 29 px, single-selection, never sortable, and not striped. A `Limited support` row takes
 `rowWarnBg` and a `Not supported` row `rowFailBg`, across all four columns. The table scrolls its
 own rows with a 150 px minimum height; the vertical scrollbar's width is part of the column
@@ -1125,9 +1128,10 @@ behind the code, and a mockup built from it cannot contain a sentence the app wo
 - Never colour alone: status cells pair an icon with a word, stage rows pair an icon with a state
   name, field states pair an icon with a tooltip.
 - The Devices table gives way from the right: the `macOS support` column shrinks (266 px down to
-  its 90 px floor) before the Device column loses anything, so a name keeps every pixel the card
-  can spare. The 40 : 60 dashboard split is part of that promise: at the window minimum the table
-  keeps 60 % of the row, which is what lets the support header print in full. A name longer than the
+  its own header's width plus the 8 px inset each side) before the Device column loses anything, so
+  a name keeps every pixel the card can spare. It never shrinks past that header, and a font wider
+  than the reference one moves the floor with it. When the two dashboard columns cannot both hold
+  their floors the split stacks, so the layout bends before a header elides. A name longer than the
   column is elided - the table never scrolls sideways, and no fixed column can promise otherwise
   against a string a report supplied - and the whole name and the whole release range are in the
   row tooltip. A 200 % UI scale changes nothing here: Qt doubles the device pixels and leaves the
