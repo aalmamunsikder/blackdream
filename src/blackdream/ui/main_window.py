@@ -50,8 +50,8 @@ from PySide6.QtWidgets import (
     QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProxyStyle,
     QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle,
-    QStyledItemDelegate, QStyleOptionViewItem, QTreeWidget, QTreeWidgetItem,
-    QVBoxLayout, QWidget)
+    QStyledItemDelegate, QStyleOptionButton, QStyleOptionViewItem, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ocengine import paths
 from ocengine import runtime
@@ -1602,7 +1602,7 @@ class MainWindow(QMainWindow):
         inspector_value.addWidget(self.config_value_edit, 1)
         inspector_value.addWidget(self.config_apply_value, 0)
         self.inspector_card.add(inspector_value)
-        self.config_bool_edit = QCheckBox("On")
+        self.config_bool_edit = _TickCheckBox("On")
         self.config_bool_edit.setObjectName("configBoolEdit")
         self.config_bool_edit.toggled.connect(self._on_config_bool_toggled)
         self.inspector_card.add(self.config_bool_edit)
@@ -5459,6 +5459,54 @@ def _path_label(path) -> str:
     return " > ".join(parts)
 
 
+def _paint_check_tick(painter: QPainter, box: QRectF, palette: dict,
+                      enabled: bool) -> None:
+    """Draw the check mark the stylesheet leaves out of a checked indicator.
+
+    ``QTreeView::indicator:checked`` and ``QCheckBox::indicator:checked`` only
+    fill the box with the accent colour, which reads as a status dot rather
+    than as a value.
+    """
+    if box.isEmpty():
+        return
+    colour = palette["onAccent"] if enabled else palette["faint"]
+    pen = QPen(qcolor(colour))
+    pen.setWidthF(1.7)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    tick = QPainterPath()
+    mark = box.adjusted(3.4, 3.4, -3.4, -3.4)
+    tick.moveTo(mark.left(), mark.center().y())
+    tick.lineTo(mark.center().x() - 0.4, mark.bottom() - 0.4)
+    tick.lineTo(mark.right(), mark.top() + 0.4)
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(pen)
+    painter.drawPath(tick)
+    painter.restore()
+
+
+class _TickCheckBox(QCheckBox):
+    """A checkbox whose checked indicator carries a visible tick."""
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if not self.isChecked():
+            return
+        option = QStyleOptionButton()
+        option.initFrom(self)
+        option.rect = self.rect()
+        box = QRectF(self.style().subElementRect(
+            QStyle.SubElement.SE_CheckBoxIndicator, option, self))
+        widget = self
+        while widget is not None and not hasattr(widget, "_palette"):
+            widget = widget.parentWidget()
+        palette = getattr(widget, "_palette", LIGHT)
+        painter = QPainter(self)
+        _paint_check_tick(painter, box, palette, self.isEnabled())
+        painter.end()
+
+
 class _ConfigValueDelegate(QStyledItemDelegate):
     """Inline editing only for scalar values, with the untruncated text.
 
@@ -5470,6 +5518,23 @@ class _ConfigValueDelegate(QStyledItemDelegate):
     def __init__(self, window: "MainWindow") -> None:
         super().__init__(window)
         self._window = window
+
+    def paint(self, painter, option, index) -> None:
+        super().paint(painter, option, index)
+        if index.column() != 1 or index.data(Qt.CheckStateRole) is None:
+            return
+        view_option = QStyleOptionViewItem(option)
+        self.initStyleOption(view_option, index)
+        widget = view_option.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        box = QRectF(style.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemCheckIndicator,
+            view_option, widget))
+        if view_option.checkState != Qt.Checked or box.isEmpty():
+            return
+        palette = getattr(self._window, "_palette", LIGHT)
+        _paint_check_tick(painter, box, palette,
+                          bool(option.state & QStyle.State_Enabled))
 
     def _value(self, index):
         document = self._window._config_doc
@@ -5533,7 +5598,7 @@ class _TextDialog(QDialog):
             self.hint = QLabel(self._hex_hint)
             self.hint.setObjectName("rowBody")
             self.hint.setWordWrap(True)
-            self.text_toggle = QCheckBox("Show as text")
+            self.text_toggle = _TickCheckBox("Show as text")
             self.text_toggle.toggled.connect(self._on_text_toggled)
             hint_row.addWidget(self.hint, 1)
             hint_row.addWidget(self.text_toggle, 0)
@@ -6022,7 +6087,7 @@ class _AdvisorDialog(QDialog):
 
         actions = QHBoxLayout()
         actions.setSpacing(8)
-        self.show_dismissed = QCheckBox("Show dismissed")
+        self.show_dismissed = _TickCheckBox("Show dismissed")
         self.show_dismissed.toggled.connect(self._populate)
         actions.addWidget(self.show_dismissed)
         actions.addStretch(1)

@@ -27,8 +27,10 @@ sys.path.insert(0, os.path.join(
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QApplication, QLabel, QPushButton)
+    QApplication, QLabel, QPushButton, QStyle, QStyleOptionButton,
+    QStyleOptionViewItem)
 
 from ocengine import runtime  # noqa: E402
 
@@ -144,6 +146,56 @@ def _select(window, path):
     window._select_config_path(path)
     window._update_config_actions()
     return _config_item(window, path)
+
+
+def _near(colour, wanted, slack=32):
+    return (abs(colour.red() - wanted.red()) <= slack
+            and abs(colour.green() - wanted.green()) <= slack
+            and abs(colour.blue() - wanted.blue()) <= slack)
+
+
+def _indicator_pixels(window, item, app):
+    """Count accent-fill and tick-glyph pixels in one boolean cell."""
+    app.processEvents()
+    viewport = window.config_tree.viewport()
+    index = window.config_tree.indexFromItem(item, 1)
+    option = QStyleOptionViewItem()
+    option.initFrom(viewport)
+    option.rect = window.config_tree.visualRect(index)
+    option.widget = window.config_tree
+    window.config_tree.itemDelegate().initStyleOption(option, index)
+    box = viewport.style().subElementRect(
+        QStyle.SubElement.SE_ItemViewItemCheckIndicator, option,
+        window.config_tree)
+    image = viewport.grab().toImage()
+    fill_colour = QColor(window._palette["accent"])
+    tick_colour = QColor(window._palette["onAccent"])
+    fill = tick = 0
+    for y in range(box.top(), box.bottom() + 1):
+        for x in range(box.left(), box.right() + 1):
+            colour = image.pixelColor(x, y)
+            if _near(colour, tick_colour):
+                tick += 1
+            elif _near(colour, fill_colour):
+                fill += 1
+    return fill, tick
+
+
+def _checkbox_tick_pixels(window, checkbox, app):
+    """Count tick-glyph pixels inside a QCheckBox indicator."""
+    app.processEvents()
+    option = QStyleOptionButton()
+    option.initFrom(checkbox)
+    option.rect = checkbox.rect()
+    box = checkbox.style().subElementRect(
+        QStyle.SubElement.SE_CheckBoxIndicator, option, checkbox)
+    image = checkbox.grab().toImage()
+    tick_colour = QColor(window._palette["onAccent"])
+    return sum(
+        1
+        for y in range(box.top(), box.bottom() + 1)
+        for x in range(box.left(), box.right() + 1)
+        if _near(image.pixelColor(x, y), tick_colour))
 
 
 def _message_box(monkeypatch, accept=True):
@@ -649,10 +701,25 @@ def test_a_boolean_cell_is_a_checkbox_that_marks_the_file_dirty(
     _settle(qapp, window._usb_runner)
     folder = tmp_path / "build"
     _efi_folder(folder)
+    window.show()
+    window._show_section("Configure EFI")
     window._set_efi_folder(str(folder))
+    window._select_config_path(
+        ("Booter", "Quirks", "AvoidRuntimeDefrag"))
 
     item = _config_item(window, ("Booter", "Quirks", "AvoidRuntimeDefrag"))
     assert item.checkState(1) == Qt.Checked
+
+    fill, tick = _indicator_pixels(window, item, qapp)
+    assert fill > 100, "the checked indicator lost its accent fill"
+    assert tick >= 8, "the checked indicator is a bare dot, with no tick"
+    window._refresh_config_inspector()
+    qapp.processEvents()
+    assert window.config_bool_edit.isChecked()
+    assert _checkbox_tick_pixels(
+        window, window.config_bool_edit, qapp) >= 8, (
+        "the inspector checkbox is a bare dot, with no tick")
+
     item.setCheckState(1, Qt.Unchecked)
     qapp.processEvents()
 

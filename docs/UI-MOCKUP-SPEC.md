@@ -1295,7 +1295,8 @@ result. Nothing on this page leaves the window, mounts a disk or writes the file
   the saved bytes the new baseline, and undo/redo never re-reads or writes the file. Then the tree,
   headers `Key` · `Value` · `Type`, three columns (Key
   and Value stretch, Type fixed at 88 px), 16 px indentation, inline editing and a checkbox for
-  booleans. A footer line names the selection, e.g. `Kernel > Add  ·  array  ·  15 items`, or
+  booleans. A checked box is the accent fill with a contrasting tick, not a bare dot. A footer
+  line names the selection, e.g. `Kernel > Add  ·  array  ·  15 items`, or
   reads `Select a key to edit it.`; with no file it reads `No config.plist is open.` The tree
   shows one disabled `No config.plist is open.` row when there is no document. The same actions
   are in the tree's context menu as `Add key`, `Add item`, `Insert preset…`, `Remove`, `Move up`,
