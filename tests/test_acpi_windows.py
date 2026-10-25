@@ -187,11 +187,14 @@ def test_the_reader_refuses_another_host(monkeypatch, sink, tmp_path):
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="reads this host's firmware")
-def test_a_non_elevated_process_gets_this_machines_dsdt(sink, tmp_path):
-    """The point of the whole module: no administrator token, real tables.
+def test_a_windows_process_gets_this_machines_dsdt(sink, tmp_path):
+    """Real tables, not the fake provider.
 
-    It runs on the release workflow's Windows leg, which is an ordinary user-mode
-    process, so a regression to an elevated-only API fails the build.
+    It runs on the release workflow's Windows leg and reads that runner's own
+    firmware. The runner's process holds an administrator token, so this proves
+    the calls return real tables on Windows; it does not prove the no-elevation
+    property. That property comes from Microsoft documenting these two calls for
+    user mode, which is how ACPICA's own Windows layer reads the same tables.
     """
     dumped = acpi_windows.WindowsAcpiDumper().dump(tmp_path)
 
