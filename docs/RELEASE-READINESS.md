@@ -1,4 +1,4 @@
-# Release readiness record — Stage A, through 0.9.0-beta.6
+# Release readiness record — Stage A, through 0.9.0-beta.7
 
 Recorded 2026-10-24 against `BlackDream_Beta_Release_Recommendation.md` (2026-10-23),
 which was written for specification v3.3 and suggested the identifier `0.9.0-beta.1`.
@@ -515,5 +515,43 @@ names.
 
 The beta 5 release and tag were deleted at the owner's instruction, so `v0.9.0-beta.6`
 is the only release on the repository. Beta 5's notes and assets remain in the release
+history of this document and of `RELEASE-NOTES.md`; the GitHub release itself is gone,
+which means its downloads are too.
+
+## 13. Beta 7 is published, and it is the only release
+
+`v0.9.0-beta.7` was tagged on `f1400a0`, and run `40196918677` built all three legs,
+passed their audits, and published the prerelease. It fixes the first failure a real
+Windows machine found in beta 6: the scan runs unprivileged, Hardware Sniffer's
+`acpidump` step does not, so the report arrived with an empty ACPI folder and the build
+stopped at `pipeline.build_not_ready`. The app now reads the DSDT, the SSDT instances
+from `HKLM\HARDWARE\ACPI` and the enumerated tables through
+`EnumSystemFirmwareTables`/`GetSystemFirmwareTable`, writes the same `ACPI` folder the
+Linux helper produces, adopts the tool's own tables first when they exist, and draws
+`Read ACPI tables` on Windows with a no-elevation tooltip.
+
+The read is proven against real firmware only to the extent the Windows runner allows.
+The suite's fake provider covers the parsing, file naming, stale-file and failure rules;
+a Windows-only test reads the runner's own DSDT and passed on the Windows leg. That
+runner's process holds an administrator token, so the test proves the calls return real
+tables on Windows, not that a non-elevated process can call them; the latter rests on
+Microsoft documenting both calls for user mode and on ACPICA using the same pair from
+its own user-mode Windows layer. No physical Windows machine has run this build yet. The
+laptop that reported the beta 6 failure is the machine this release is asking to test.
+
+Verification of the published bytes: the release carries eight assets, and every line of
+its `SHA256SUMS.txt` matches GitHub's digest of the uploaded asset. The published Linux
+archive was downloaded again, its digest matched that file
+(`bde475b4…e94417`), it unpacked to a bundle that prints `blackdream 0.9.0-beta.7` and
+whose `--smoke` run starts the offscreen platform, and its `RELEASE-NOTES.md` is the
+beta 7 document. A pre-tag dispatch (`40195939586`, commit `f1400a0`) built the same
+three legs, verified all its artifact sums locally, and started that bundle before the
+tag was pushed. The publish run is a separate build and its archives have their own
+digests; the release's own sums file is the authority for what was published. With the
+published assets in `dist/release` the suite is 1007 passed, 2 skipped of 1009
+collected, which is the count the notes state.
+
+The beta 6 release and tag were deleted at the owner's instruction, so `v0.9.0-beta.7`
+is the only release on the repository. Beta 6's notes and assets remain in the release
 history of this document and of `RELEASE-NOTES.md`; the GitHub release itself is gone,
 which means its downloads are too.
