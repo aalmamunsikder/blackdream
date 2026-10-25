@@ -1,16 +1,18 @@
-# Release readiness record — 0.9.0-beta.3, Stage A
+# Release readiness record — Stage A, through 0.9.0-beta.4
 
 Recorded 2026-10-24 against `BlackDream_Beta_Release_Recommendation.md` (2026-10-23),
 which was written for specification v3.3 and suggested the identifier `0.9.0-beta.1`.
-This build is v3.6 / `0.9.0-beta.3`, so the recommendation's *screen numbers and version
-label are stale*; its gates are not, and they are judged here one by one.
+The record began with v3.6 / `0.9.0-beta.3`; the distributed build is v3.7 /
+`0.9.0-beta.4`, so the recommendation's *screen numbers and version label are stale*;
+its gates are not, and they are judged here one by one.
 
 Stage A is the internal release-candidate stage: prove the critical workflows before
 external testers are invited. This document is that proof, in the open, so a reviewer can
 check every claim against the tree.
 
-Stage A passed and `v0.9.0-beta.3` was published on 2026-10-24. Section 7 records what the
-published bytes showed afterwards, and what was deliberately left as published.
+Stage A passed and `v0.9.0-beta.3` was published on 2026-10-24; the defects the published
+bytes exposed shipped fixed as `v0.9.0-beta.4` on 2026-10-25. Section 7 records what each
+published build showed afterwards, and section 10 records beta 4 in full.
 
 Statuses used below:
 
@@ -155,7 +157,7 @@ their release actions. There is no form inside the app and nothing is uploaded;
 
 | Criterion | Result |
 | --- | --- |
-| 100 % of the P0 checks pass on the candidate | Not met as written: 37 of the 38 gates are proved or run, and A12's pull-the-stick-mid-copy case has no evidence. The suite is green (848 passed, 2 skipped, 850 collected). |
+| 100 % of the P0 checks pass on the candidate | Not met as written: 37 of the 38 gates are proved or run, and A12's pull-the-stick-mid-copy case has no evidence. The suite is green (921 passed, 2 skipped, 923 collected). |
 | Zero known P0 defects | Met — none open. |
 | Every supported OS has one successful end-to-end Compatibility → Build → Configure run | Met on Linux; **not met** on Windows or macOS on real hardware |
 | Installer writing passes the safety checklist on every OS where it ships | **Not met** — proved against a directory stand-in only |
@@ -171,6 +173,10 @@ startup smoke test passes on the real session in both QPA platforms; the clause 
 not meet is "every P0 check passes", because A12's physical-media half has no evidence.
 That is the half Stage B exists to test — journey 4 in `docs/RELEASE-NOTES.md` asks a
 tester to write to a stick they can afford to lose and safely eject it.
+
+**The decision now applies to `0.9.0-beta.4`**, the build published on 2026-10-25 with the
+dependency advisor and the clipped-label fixes (§10). The clause that keeps Stage A from a
+full pass is unchanged: A12's physical-media half still has no evidence.
 
 The workflow was run again on the last commit that changes anything inside a bundle
 (`README.md`, `docs/RELEASE-NOTES.md`, `docs/THIRD-PARTY.md` and `LICENSE` are copied beside
@@ -429,6 +435,14 @@ the unpacked bundle reports `blackdream 0.9.0-beta.4 smoke ok: platform=offscree
 `_internal/licenses/` now holds `ocengine/` and `sniffer/` side by side, each with its
 own `VENDOR_NOTICE.txt`, which closes the one defect the beta 3 audit found in the
 published bytes.
+
+Two documentation frames still showed the previous label after the release: the About card
+in `08-settings.png` and the environment block in `15-diagnostics-bundle.png`. Those are the
+only frames that display it — the window writes `RELEASE_LABEL` into the About card and the
+environment text, and nowhere else that a screenshot reaches. Both were rendered from this
+tree on 2026-10-25 at their existing sizes and now read `BlackDream 0.9.0-beta.4`; the other
+frames and the five other dialogs are unchanged. A stale copy of the test count in section 6
+was corrected to the measured 921 passed / 2 skipped / 923 collected at the same time.
 
 The roadmap's Phase 4 exit gate now has a build to test against: a tester with this
 release can open `Configure EFI ▸ Dependencies…`, classify a finding, and press
