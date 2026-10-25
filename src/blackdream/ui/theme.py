@@ -546,6 +546,7 @@ QComboBox QAbstractItemView {
     padding: 4px; outline: 0;
     selection-background-color: transparent;
 }
+QFrame#comboPopup { background: transparent; border: none; }
 QComboBox QAbstractItemView::item {
     min-height: 28px; padding: 0 8px; border-radius: 6px;
     color: $text;

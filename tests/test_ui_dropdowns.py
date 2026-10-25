@@ -102,13 +102,30 @@ def test_non_editable_combos_drop_below_the_field(qapp, make_window):
     combo.hidePopup()
 
 
-def test_the_popup_style_is_overridden_on_this_platform(qapp):
+def test_the_popup_style_is_overridden_on_this_platform(qapp, make_window):
     install_dropdown_style()
     if sys.platform == "darwin":
         pytest.skip("macOS keeps the native menu-style popup")
     option = QStyleOptionComboBox()
     assert qapp.style().styleHint(QStyle.SH_ComboBox_Popup, option) == 0
     assert isinstance(qapp.style(), ui._ComboPopupStyle)
+
+    # The rounded list is the popup window's own shape: Fusion otherwise fills
+    # and shadows a square frame behind the view's 10 px radius. Every combo --
+    # the window's and the Add-key dialog's plain ones -- prepares its popup
+    # before it is ever shown.
+    window = make_window()
+    dialog = ui._AddKeyDialog(window, (("DeviceProperties", "dict"),), set(), LIGHT)
+    combos = window.findChildren(QComboBox) + dialog.findChildren(QComboBox)
+    assert combos
+    for combo in combos:
+        popup = combo.view().window()
+        assert popup.objectName() == "comboPopup", combo
+        assert popup.testAttribute(Qt.WA_TranslucentBackground), combo
+        assert bool(popup.windowFlags() & Qt.FramelessWindowHint), combo
+        assert bool(popup.windowFlags() & Qt.NoDropShadowWindowHint), combo
+    dialog.close()
+    dialog.deleteLater()
 
 
 def test_the_log_filter_starts_with_a_selection(qapp, make_window):

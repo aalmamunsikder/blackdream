@@ -287,6 +287,26 @@ def install_dropdown_style() -> None:
     application.setStyle(_ComboPopupStyle(application.style().objectName() or "Fusion"))
 
 
+def _round_combo_popup(combo: QComboBox) -> None:
+    """Let the list's own rounded background be the popup window's shape.
+
+    The view is styled with a 10 px radius, but it sits inside a square popup
+    frame that Fusion fills and shadows. The radius then reads as a rounded list
+    on a grey plate. A transparent, frameless, shadowless popup leaves the view's
+    corners as the window's corners -- and the app draws no shadow around any
+    surface. macOS keeps its native menu-style popup.
+    """
+    if sys.platform == "darwin":
+        return
+    popup = combo.view().window()
+    if popup.objectName() == "comboPopup":
+        return
+    popup.setObjectName("comboPopup")
+    popup.setAttribute(Qt.WA_TranslucentBackground, True)
+    popup.setWindowFlags(popup.windowFlags() | Qt.FramelessWindowHint
+                         | Qt.NoDropShadowWindowHint)
+
+
 class _Wallpaper(QWidget):
     """The window's interior: blue silk behind the glass, painted not shipped.
 
@@ -5075,6 +5095,7 @@ class _Combo(QComboBox):
         view.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         view.setTextElideMode(Qt.ElideRight)
+        _round_combo_popup(self)
 
     def wheelEvent(self, event) -> None:
         if not self.hasFocus():
@@ -5597,10 +5618,12 @@ class _AddKeyDialog(QDialog):
         self.key_combo.setInsertPolicy(QComboBox.NoInsert)
         self.key_combo.addItems(list(self._suggestions))
         self.key_combo.currentTextChanged.connect(self._on_key_changed)
+        _round_combo_popup(self.key_combo)
         form.addRow("Key", self.key_combo)
         self.type_combo = QComboBox()
         self.type_combo.addItems(config_editor.PLIST_TYPES)
         self.type_combo.currentTextChanged.connect(self._on_type_changed)
+        _round_combo_popup(self.type_combo)
         form.addRow("Type", self.type_combo)
         self.default_field = QLineEdit()
         self.default_field.setPlaceholderText("Default value")

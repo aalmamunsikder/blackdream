@@ -378,6 +378,10 @@ the sidebar a `sidebarFill` gradient, over the silk.
   card's gradient fill plus 1 px border and lighter top edge build the layers. The app draws no
   shadow around any surface. Qt has no `box-shadow`, and `QGraphicsDropShadowEffect` would repaint
   the whole card subtree on every log line.
+- **A combo list is the rounded view itself.** On Windows and Linux the popup window is transparent,
+  frameless and shadowless, so the platform cannot draw a square plate behind the list's 10 px
+  radius; the first and last rows sit inside the same radius. macOS keeps its native menu-style
+  popup.
 - **Gradients are the material.** The wallpaper, content veil, sidebar fill and card fills are
   gradients. The functional gradients are the primary button (`primaryTop` → `primaryBottom`, left
   to right; hover uses the `primaryHover…` pair), the checked sidebar item (`navCheckedTop` →
